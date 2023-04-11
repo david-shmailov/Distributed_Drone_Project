@@ -10,9 +10,9 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    Pid = erl_ide_sup:start_link(),
+    erl_ide_sup:start_link(),
     ex2_311328322:main(),
-    Pid.
+    stop(_StartType).
 
 stop(_State) ->
     ok.
