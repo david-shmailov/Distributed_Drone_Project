@@ -47,13 +47,10 @@ mod3Key(A,B) ->
     end.
 
 % quick sort arity 1
-qSort(List) -> qSortByKey(List, fun(A,B) -> A < B end).
-
-% quick sort that can receive a custom key to sort elements by (ended up not using this feature)
-qSortByKey([], _) -> [];
-qSortByKey([Pivot|T], Key) ->
-    LessThanPivot = [X || X <- T, Key(X,Pivot)],
-    GreaterThanPivot =  [X || X <- T, Key(Pivot,X)],
+qSort([]) -> [];
+qSort([Pivot|T]) ->
+    LessThanPivot = [X || X <- T, X < Pivot],
+    GreaterThanPivot =  [X || X <- T, Pivot =< X],
     SortedRight = qSort(LessThanPivot),
     SortedLeft = qSort(GreaterThanPivot),
     SortedRight ++ [Pivot] ++ SortedLeft.
@@ -189,6 +186,8 @@ fiboT(N,Elem1,Elem2,Index) ->
 %     io:format("started\n"),
 %     % List = [],
 %     % List = [2,3,9,5,6,7,8,1,4,10],
+%     List = [1,2,3,1,3,4,7,4],
+%     A = qSort(List),
 %     % MatA = [
 %     %     [1,2,3],
 %     %     [4,5,6],
