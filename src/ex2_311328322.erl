@@ -56,24 +56,24 @@ concatLists([H|T], List2, Acc) -> concatLists(T, List2, [H|Acc]); % as long as l
 concatLists([], [H|T], Acc) -> concatLists([],T,[H|Acc]); % List1 is empty, as long as list2 is not empty  iterate and accumulate in reverse.
 concatLists([],[],Acc) -> reverse(Acc). % Acc was built in reverse so it needs to be reversed
 
-% main() ->
-%     io:format("started\n"),
-%     % A = findKelem([1,2,3,4,5],5),
-%     % B = findKelem([1,2,3,4,5],6),
-%     % C = findKelem([],3),
-%     % A = reverse([1,2,3,4,5]),
-%     % B = reverse([]),
-%     % A = deleteKelem([1,2,1,2,1],1),
-%     % B = deleteKelem([1,2,1,2,1],3),
-%     % C = deleteKelem([],3),
-%     % A = addKelem([1,2,3,4,5],3,new),
-%     % B = addKelem([1,2,3,4,5],6,new),
-%     % C = addKelem([],1,new),
-%     % A = union([],[]),
-%     % B = union([1,2,3],[2,3,4]),
-%     % C = union([1,2,2,5],[1,2,3]),
+main() ->
+    io:format("started\n"),
+    % A = findKelem([1,2,3,4,5],5),
+    % B = findKelem([1,2,3,4,5],6),
+    % C = findKelem([],3),
+    % A = reverse([1,[2,3],2,3,4,5]),
+    % B = reverse([]),
+    % A = deleteKelem([1,2,1,2,1],1),
+    % B = deleteKelem([1,2,1,2,1],3),
+    % C = deleteKelem([],3),
+    % A = addKelem([1,2,3,4,5],3,new),
+    % B = addKelem([1,2,3,4,5],6,new),
+    % C = addKelem([],1,new),
+    A = union([],[]),
+    B = union([1,2,3],[2,3,4]),
+    C = union([1,2,2,5],[1,2,3]),
 
-%     % A = concatLists([1],[2,3]),
-%     io:format("finished\n").
+    % A = concatLists([1],[2,3]),
+    io:format("finished\n").
 
 
