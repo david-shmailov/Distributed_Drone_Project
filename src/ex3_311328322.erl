@@ -1,7 +1,6 @@
 -module(ex3_311328322).
 -author("David").
 
-% -export([main/0]).
 -export([mSort/1,qSort/1,sortRes/2,sortResLC/1,sortResPM/1,sortResLM/1,matElemMult/2,filter_g/2,filter_p/2,even/1,fiboR/1,fiboT/1]).
 
 
@@ -19,7 +18,7 @@ sortResLC(List) ->
     Mod0 ++ Mod1 ++ Mod2.
 
 % Arity 1
-sortResPM([H|T]) -> sortResPM([H|T],[],[],[]).
+sortResPM(List) -> sortResPM(List,[],[],[]).
 
 % Arity 4
 sortResPM([],Mod0,Mod1,Mod2) ->
@@ -177,50 +176,6 @@ fiboT(N,Elem1,Elem2,Index) ->
 
 % tail recursion can run indefinitly with any N, only limited by the overflow of integers. much faster.
 
-% measure_runtime() ->
-%     {Time, Result} = timer:tc(fun() -> fiboT(30) end),
-%     io:format("Runtime: ~p microseconds~n", [Time]),
-%     io:format("Result: ~p~n", [Result]).
-
-% main() ->
-%     io:format("started\n"),
-%     % List = [],
-%     % List = [2,3,9,5,6,7,8,1,4,10],
-%     List = [1,2,3,1,3,4,7,4],
-%     A = qSort(List),
-%     % MatA = [
-%     %     [1,2,3],
-%     %     [4,5,6],
-%     %     [5,6,7]
-%     %     ],
-%     % MatB = [
-%     %     [8,9,10],
-%     %     [11,12,13],
-%     %     [14,15,16]
-%     %     ],
-
-%     % MatB = [[6],[5],[4],4],
-
-%     % List1 = filter_g([1,a,2,b,c,3,4,5],numbers),
-%     % List2 = filter_g([1,elem,elem,c,b,a,2,3,4,5],atoms),
-%     % List3 =  filter_g([1.0,elem,1.5,1.789,5], numbers) ,
-    
-%     % List1 = filter_p([1,a,2,b,c,3,4,5],numbers),
-%     % List2 = filter_p([1,elem,elem,c,b,a,2,3,4,5],atoms),
-%     % List3 =  filter_p([1.0,elem,1.5,1.789,5], number) ,
-
-%     % List4 = even([1,2,3,4,5,6,7,8,9]),
-%     % List5 = even([1,3,4,2,6,5,1]),
-%     % List6 = even([1]),
-%     % N = 3,
-%     % NumT = fiboT(N),
-%     % NumR = fiboR(N),
-%     % measure_runtime(),
-%     % SortedListLC = sortRes(List,lc),
-%     % SortedListpm = sortRes(List,pm),
-%     % SortedListlm = sortRes(List,lm),
-%     % Output = matElemMult(MatA,MatB),
-%     io:format("finished\n").
 
 
 
