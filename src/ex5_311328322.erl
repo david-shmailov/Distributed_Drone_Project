@@ -19,10 +19,9 @@ mesh_serial(N,M,C)  when N > 1 andalso C >= 1 andalso C =< N*N andalso M >= 0 ->
     Start_time = erlang:monotonic_time(),
     {Sent, Received} = master_serial_main(N,M,C),
     TotalTime = (erlang:monotonic_time() - Start_time)/1000,
-    io:format("First Process PID ~p Received all ~p messages and finished\n",[self(),M]),
+    io:format("First Process PID ~p Received all ~p messages and finished\n",[self(),Received]),
     io:format("mesh_serial total time: ~p ms~n", [TotalTime]),
     empty_mailbox(),
-    erlang:garbage_collect(),
     {TotalTime, Sent, Received};
 mesh_serial(_,_,_) ->
     io:format("Invalid input, make sure: 0 < N, 1 <= C <= N*N, 0 <= M ~n").
@@ -35,22 +34,15 @@ master_serial_main(N,M,C) ->
     
 
 
-mesh_scheduler(Vertex_states,C) ->
-    % round-robin scheduler
-    % assign each vertix CPU time until timeout, return a list of vertix states
-    [mesh_vertix_loop(ID, Vertex_state,C) || {ID, Vertex_state} <- Vertex_states]. 
-
-
-
 mesh_event_loop(Vertex_states,C,N,M) ->
     % Vertex_states is a list of all remaining messages per each state
     States = mesh_scheduler(Vertex_states,C),
     % get the master vertix state
     {C, Master_state} = lists:keyfind(C, 1,States), 
     % get a list of all verticies counters (how many messages each vertix received)
-    Verticies_counters = maps:get(verticies_counters, Master_state),
+    Messages_received = maps:get(messages_received, Master_state),
     % count the number of total received messages from all verticies:
-    Total_received = maps:fold(fun(_,Value, Counter) -> Counter + Value end, 0, Verticies_counters),
+    Total_received = length(Messages_received),
     if 
         % all messages received
         Total_received >= (N*N-1)*M -> 
@@ -60,6 +52,10 @@ mesh_event_loop(Vertex_states,C,N,M) ->
         true -> mesh_event_loop(States,C,N,M)
     end.
     
+mesh_scheduler(Vertex_states,C) ->
+    % round-robin scheduler
+    % assign each vertix CPU time, return a list of vertix states
+    [proccess_all_messages(ID, Vertex_state,C) || {ID, Vertex_state} <- Vertex_states]. 
 
 mesh_vertix_init(C,N,C,M) ->
     % initialize master vertix state
@@ -69,48 +65,43 @@ mesh_vertix_init(C,N,C,M) ->
     % send messages to neighbors, and count how many messages were sent:
     Msg_sent_per_neighbor = [send_to_neighbors(serial,{ID,M_num},Neighbors) || {ID,M_num} <- Messages],
     Total_sent = lists:foldl(fun(X,Acc) -> X + Acc end, 0, Msg_sent_per_neighbor),
-    Vertex_state = #{neighbors=>Neighbors, messages_received=>gb_sets:new(), messages_sent=>Total_sent, verticies_counters => #{}, m => M, n => N},
+    Vertex_state = #{neighbors=>Neighbors, messages_received=>[], messages_sent=>Total_sent, m => M, n => N},
     {C, Vertex_state}; % return {ID, Vertex_state}
 
 mesh_vertix_init(ID, N, _, _) ->
     % initialize vertix state
     Neighbors = calculate_neighbors(ID,N),
-    Vertex_state = #{neighbors=>Neighbors, messages_received=>gb_sets:new()},
+    Vertex_state = #{neighbors=>Neighbors, messages_received=>[]},
     {ID,Vertex_state}. % return Vertex_state
 
+mesh_vertix_loop(ID, Vertex_state, _, []) -> % no more messages to process
+    {ID, Vertex_state};
+mesh_vertix_loop(ID, Vertex_state, C, [Message|Rest]) ->
+    {ID, State} = handle_serial_message(Message, ID, Vertex_state, C),
+    mesh_vertix_loop(ID, State, C, Rest).
 
-mesh_vertix_loop(C, Vertex_state, C) ->  % master vertix loop
-    receive
-        {C, Payload} ->
-            handle_serial_message(Payload, C, Vertex_state, C)
-        after 0 ->
-            {C,Vertex_state}
-    end;
-
-mesh_vertix_loop(ID, Vertex_state, C) -> % slave vertix loop
+proccess_all_messages(ID, Vertex_state, C) -> proccess_all_messages(ID, Vertex_state, C, []).
+proccess_all_messages(ID, Vertex_state, C, Messages) -> % get all messages from the mailbox
     receive
         {ID, Payload} -> % if message is directed towards this vertix
-            handle_serial_message(Payload, ID, Vertex_state, C)
+            proccess_all_messages(ID, Vertex_state, C, [Payload|Messages])
         after 0 ->
-            {ID,Vertex_state}
+            mesh_vertix_loop(ID, Vertex_state, C, Messages)
     end.
 
-handle_serial_message({ID, Msg}, C, Vertex_state, C) -> % master message handler
+handle_serial_message({Src_ID, Msg}, C, Vertex_state, C) -> % master message handler
     Messages_received = maps:get(messages_received, Vertex_state),
-    case gb_sets:is_element({ID, Msg}, Messages_received) of
+    case lists:member({Src_ID, Msg}, Messages_received) of
         true -> % already received this message discard it
             {C,Vertex_state};
         false -> % first time receiving this message
-            Verticies_counters = maps:get(verticies_counters, Vertex_state), % Verticies_counters is a map of counters for each vertix
-            Updated_MR = gb_sets:add({ID, Msg},Messages_received),
-            Counter = maps:get(ID, Verticies_counters, 0),
-            Updated_VC = maps:put(ID,Counter + 1,Verticies_counters), % we can use put() to create a new Key if its non existant
-            {C,Vertex_state#{verticies_counters := Updated_VC, messages_received := Updated_MR}}
+            Updated_MR = [{Src_ID, Msg}|Messages_received],
+            {C, Vertex_state#{messages_received := Updated_MR}}
     end;
 
 handle_serial_message(Payload, ID, Vertex_state, C) -> % slave message handler
     Messages_received = maps:get(messages_received, Vertex_state),
-    case gb_sets:is_element(Payload,Messages_received) of
+    case lists:member(Payload,Messages_received) of
         true -> % already received this message discard it
             {ID,Vertex_state};
         false -> % first time receiving this message
@@ -119,10 +110,9 @@ handle_serial_message(Payload, ID, Vertex_state, C) -> % slave message handler
             case Payload of
                 {C,M_num} -> % master's message
                     send_to_neighbors(serial,{ID,M_num},Neighbors), % respond to master
-                    Updated_MR = gb_sets:add({ID,M_num},Messages_received), % add self response to received messages
-                    {ID, Vertex_state#{messages_received :=  gb_sets:add(Payload,Updated_MR)}};
+                    {ID, Vertex_state#{messages_received := [Payload,{ID,M_num}] ++ Messages_received}};
                 _ -> % not master's message
-                    {ID, Vertex_state#{messages_received := gb_sets:add(Payload,Messages_received)}}
+                    {ID, Vertex_state#{messages_received := [Payload|Messages_received]}}
             end
     end.
 
@@ -147,7 +137,7 @@ mesh_parallel(N,M,C) when N >= 1 andalso C >= 1 andalso C =< N*N andalso M >= 0 
     TotalTime = (erlang:monotonic_time() - Start_time)/1000,
     io:format("Master Process ~p, PID ~p Received all ~p messages and finished\n",[C,self(),Received]),
     io:format("mesh_parallel total time: ~p ms~n", [TotalTime]),
-    timer:sleep(50), % let all processes die
+    timer:sleep(5), % let all processes die
     empty_mailbox(),
     {TotalTime, Sent, Received};
 mesh_parallel(_,_,_) ->
@@ -160,11 +150,6 @@ master_process(N,M,C) ->
     [Pid ! {proc_dict, Proc_dict} || {ID,Pid} <- Proc_dict, ID /= C],
     % calculate master's neighbors:
     Neighbors = get_neighbors_procs(C,N,Proc_dict),
-    % generate M messages to send:
-    % Messages = [{C,M_num} || M_num <- lists:seq(1,M)], % create M messages to send
-    % send messages to neighbors, and count how many messages were sent:
-    % Msg_sent_per_neighbor = [send_to_neighbors(parallel,{ID,M_num},Neighbors) || {ID,M_num} <- Messages],
-    % Total_sent = lists:foldl(fun(X,Acc) -> X + Acc end, 0, Msg_sent_per_neighbor),
     % wait for all messages to return:
     {Total_sent,Total_received} = master_loop(N,C,M,Neighbors),
     [Pid ! kill || {ID,Pid} <- Proc_dict, Pid /= self(), ID /= C],
@@ -221,7 +206,7 @@ slave_init(ID,N,C,M) ->
     slave_loop(ID,N,C,M,Neighbors).
     
 slave_loop(ID,N,C,M,Neighbors) -> slave_loop(ID,N,C,M,Neighbors,[]).
-slave_loop(C,N,C,M,Neighbors,Messages_received) -> exit("slave_loop: C == ID");
+slave_loop(C,_,C,_,_,_) -> exit("slave_loop: C == ID");
 slave_loop(ID,N,C,M,Neighbors,Messages_received) ->
     receive
         kill ->
@@ -286,6 +271,7 @@ send_message(parallel,{ID,PID},Message) ->
 send_message(serial,DST,Message) ->
     case DST of
         undefined -> 0;
+        false -> 0;
         _ -> 
             self() ! {DST,Message}, % Message is {Src,Msg}
             1
