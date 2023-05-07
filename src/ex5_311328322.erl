@@ -152,6 +152,7 @@ master_process(N,M,C) ->
     Neighbors = get_neighbors_procs(C,N,Proc_dict),
     % wait for all messages to return:
     {Total_sent,Total_received} = master_loop(N,C,M,Neighbors),
+    % kill all processes:
     [Pid ! kill || {ID,Pid} <- Proc_dict, Pid /= self(), ID /= C],
     {Total_sent, Total_received}.
 
