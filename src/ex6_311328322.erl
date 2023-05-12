@@ -24,8 +24,9 @@ connect_graph([V|T],Graph_verticies,Graph) ->
 
 connect_vertex(_,[],Graph) ->
     Graph;
-connect_vertex(V,[V|T],Graph) -> % do not connect to self , skip
-    connect_vertex(V,T,Graph);
+% i allow an vertex to have an edge to itself
+% connect_vertex(V,[V|T],Graph) -> % do not connect to self , skip
+%     connect_vertex(V,T,Graph);
 connect_vertex(V,[H|T],Graph) -> % connect to all other verticies with the proper rules
     Last_char = lists:last(V),
     First_char = hd(H),

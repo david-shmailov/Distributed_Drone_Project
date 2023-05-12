@@ -14,7 +14,7 @@ test() ->
     G = songList(["ABC","CBA","BAC","ACB","BBA"]),
     Path = songGen(G,"ABC","BAC"),
 
-    Res = songGen(songList(["ABC","CBA","BAC","ACB","BBA"]),"ABC","BAC"),
+    Res = songGen(songList(["ABC","CBA","BAC","ACB","BBA","ABA"]),"ABA","ABA"),
     % %% Open the file in write mode
     % {ok, File} = file:open("output.txt", [write]),
     % %% Close the file
