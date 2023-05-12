@@ -2,19 +2,20 @@
 -author("David").
 
 -export([test/0]).
--import(ex6_311328322,[songList/1,songGen/3]).
+-import(ex7_311328322,[steady/1,calc/3]).
 
-print_time(Start_time)->
-    TotalTime = floor((erlang:monotonic_time()/1000000000 - Start_time)),
-    io:format("Elapsed time: ~p\n", [TotalTime]).
 
 
 test() ->
     io:format("**********************************Starting test**********************************~n"),
-    G = songList(["ABC","CBA","BAC","ACB","BBA"]),
-    Path = songGen(G,"ABC","BAC"),
-
-    Res = songGen(songList(["ABC","CBA","BAC","ACB","BBA","ABA"]),"ABA","ABA"),
+    ex7_311328322:steady(fun() -> ex7_311328322:calc(division, 1, 0) end),
+    ex7_311328322:steady(fun() -> ex7_311328322:calc(division, 1, 1) end),
+    ex7_311328322:steady(fun() -> ex7_311328322:calc(division, 1, 2) end),
+    ex7_311328322:steady(fun() -> exit(0) end),
+    ex7_311328322:steady(fun() -> exit(1) end),
+    ex7_311328322:steady(fun() -> throw({mine, "because"}) end),
+    ex7_311328322:steady(fun() -> 1/0 end),
+    
     % %% Open the file in write mode
     % {ok, File} = file:open("output.txt", [write]),
     % %% Close the file
