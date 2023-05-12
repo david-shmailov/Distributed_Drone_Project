@@ -2,7 +2,7 @@
 -author("David").
 
 -export([test/0]).
-% -import(ex5_311328322,[ring_parallel/2,ring_serial/2,mesh_parallel/3,mesh_serial/3]).
+-import(ex6_311328322,[songList/1,songGen/3]).
 
 print_time(Start_time)->
     TotalTime = floor((erlang:monotonic_time()/1000000000 - Start_time)),
@@ -11,10 +11,13 @@ print_time(Start_time)->
 
 test() ->
     io:format("**********************************Starting test**********************************~n"),
-    %% Open the file in write mode
-    {ok, File} = file:open("output.txt", [write]),
+    G = songList(["ABC","CBA","BAC","ACB","BBA"]),
+    Path = songGen(G,"ABC","BAC"),
 
-    %% Close the file
-    file:close(File),
+    Res = songGen(songList(["ABC","CBA","BAC","ACB","BBA"]),"ABC","BAC"),
+    % %% Open the file in write mode
+    % {ok, File} = file:open("output.txt", [write]),
+    % %% Close the file
+    % file:close(File),
     io:format("**********************************Finished test**********************************~n").
 
