@@ -32,5 +32,5 @@ calc(division,A,B) ->
         A / B
     catch
         error:badarith ->
-            infinity % return infinity atom on division by zero
+            error_divided_by_zero % return infinity atom on division by zero
     end.
