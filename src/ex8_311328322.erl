@@ -4,6 +4,7 @@
 
 
 startChat({remote, Host, Remote_receiver_pid}) ->
+    % this function initiates the callee (remote) node
     Table_owner_Pid = spawn(fun () -> table_owner_init() end), % initiates ETS table
     wait_for_table_ready(),
     set_global(remote_node, Host),
@@ -26,6 +27,7 @@ startChat({remote, Host, Remote_receiver_pid}) ->
     Local_receiver_pid;
 
 startChat(Host) -> 
+    % this function initates the caller (local) node
     Table_owner_Pid = spawn(fun () -> table_owner_init() end), % initiates ETS table
     wait_for_table_ready(),
     set_global(remote_node, Host),
