@@ -2,7 +2,7 @@
 -author("David").
 
 -export([test/0]).
--import(ex8_311328322,[startChat/1, call/1,steadyLink/1, steadyMon/1]).
+-import(ex9_311328322,[etsBot/0]).
 
 
 print_per_sec() ->
@@ -19,21 +19,6 @@ main() ->
 
 test() ->
     io:format("**********************************Starting test**********************************~n"),
-    % Pid = spawn(fun () -> main() end),
-    % io:format("main Pid: ~p~n", [Pid]),
-    Pid_Local_sender = ex8_311328322:startChat('callee@Legion'),
-    timer:sleep(1000),
-    Pid_Local_sender ! "Hello",
-    % timer:sleep(1000),
-    % ex8_311328322:call("Hey"),
-    % timer:sleep(1000),
-    % Pid_Local_sender ! stats,
-    % timer:sleep(1000),
-    % ex8_311328322:call(stats),
-    
-    % %% Open the file in write mode
-    % {ok, File} = file:open("output.txt", [write]),
-    % %% Close the file
-    % file:close(File),
+    ex9_311328322:etsBot(),
     io:format("**********************************Finished test**********************************~n").
 
