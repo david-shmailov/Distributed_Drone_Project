@@ -22,3 +22,4 @@ src/test.erl
 *.txt
 *.elog
 *.ets
+*.beam
