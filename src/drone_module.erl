@@ -89,7 +89,7 @@ slave(time_tick, _From, Data) ->
     step(),
     {keep_state, Data};
 
-slave(vector_update, _From, Data) ->
+slave(vector_update, _From, {Location,Velocity}) ->
     waypoint_update(Location, Velocity),
     {keep_state, Data};
 
@@ -124,4 +124,5 @@ slow_speed({New_velocity_x,New_velocity_y}) ->
     put(velocity,{New_velocity_x,New_velocity_y}).
 
 
-waypoint_update(Data) -> fuckyou.
+waypoint_update({X,Y},{Vx,Vy}) -> fuckyou.
+    
