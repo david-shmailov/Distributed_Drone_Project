@@ -1,5 +1,5 @@
 
--module(gui_interface_server).
+-module(gui_server).
 
 -behaviour(gen_server).
 
@@ -19,11 +19,12 @@
 
 
 start_link(Host, Port) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Host, Port], []).
+    gen_server:start_link({global, ?MODULE}, ?MODULE, [Host, Port], []).
 
 
 
 init([Host, Port]) ->
+    send_message_to_gs({establish_comm, <<"hello world">>}),
     connect_with_retry(Host, Port, ?RETRY_DELAY).
 
 connect_with_retry(Host, Port, Delay) ->
@@ -38,6 +39,16 @@ connect_with_retry(Host, Port, Delay) ->
             io:format("Error: ~p~n", [OtherReason]),
             {stop, OtherReason}
     end.
+
+
+
+
+send_message_to_gs(Message) ->
+    % Iterate over all GS nodes and send them the message.
+    Nodes = ['gs1@localhost', 'gs2@localhost', 'gs3@localhost', 'gs4@localhost'], 
+    Answers = [lists:flatten(gen_server:call({gs_server, Node}, Message)) || Node <- Nodes],
+    io:format("Answers: ~p~n", [Answers]),
+    ok.
 
 
 handle_call({send_data, Data}, _From, #state{socket = Socket} = State) ->

@@ -6,8 +6,8 @@
 -module(gui_pc_app).
 
 -behaviour(application).
--import(gui_interface_server,[start_link/2]).
--import(gui_interface_server,[  init/1,
+-import(gui_server,[start_link/2]).
+-import(gui_server,[  init/1,
                                 handle_call/3,
                                 handle_cast/2,
                                 handle_info/2,
@@ -18,8 +18,8 @@
 
 start(_StartType, _StartArgs) ->
     gui_pc_sup:start_link(),
-    start_python_gui(),
-    {ok, Pid} = gui_interface_server:start_link("localhost", 8000),
+    % start_python_gui(),
+    {ok, Pid} = gui_server:start_link("localhost", 8000),
     gen_server:call(Pid, {send_data, <<"hello wworld">>}),
     % project_test:report(),
     timer:sleep(10000),
