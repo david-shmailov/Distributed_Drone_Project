@@ -1,103 +1,127 @@
--module(drone_module).
--author("Neriya").
-
-
+-module(drone_statem).
 -behaviour(gen_statem).
 
-%% External API
--export([start_link/0, trigger_event/2]).
+-export([start_link/0]).
+-export([init/1, callback_mode/0, terminate/3, code_change/4]).
+-export([leader/3, slave/3]).
 
-%% gen_server callbacks
--export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
-%% State record - define your FSM states here
--record(state, {leader
-    % Add any other state-specific data here
+
+-record(data, {
+    timeout_ref,
+    location,
+    velocity,
+    waypoint,
+    gs_pid,
+    follower_pid,
+    self_id
 }).
-
-%%  Drone data record structure
-%% -ground_station_id - PID
-%% -drone_to_follow_id -PID
-%% -velocity -{velocity_x,velocity_y} - {int,int}
-%% -location - {location_x,location_y} - {int,int}
-%% - order_number -int
-
-%% External API
 
 start_link() ->
     gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-trigger_event(Pid, Event) ->
-    gen_statem:cast(Pid, {trigger_event, Event}).
+init([Location,GS_PID,Follower_PID,Self_id]) ->
+    {ok, slave, #data{  timeout_ref=reset_timeout(),
+                        location=Location,
+                        velocity={0,0},
+                        waypoint=Location,
+                        gs_pid=GS_PID,
+                        follower_pid=Follower_PID,
+                        self_id=Self_id}
+                    }. % Initially a slave with a 5-second time_tick.
 
-%% gen_statem callbacks
+callback_mode() ->
+    state_functions.
 
-init([]) ->
-    InitialState = #state{
-        current_state = initial_state,
-        % Initialize any other state-specific data here
-    },
-    {ok, InitialState}.
+reset_timeout() ->
+    {state_timeout, 5000, time_tick}.
 
-handle_call(_Request, _From, State) ->
-    %% No synchronous calls expected in this FSM, just ignore the call.
-    {noreply, State}.
+%% API functions
 
-handle_cast({trigger_event, Event}, State) ->
-    %% Handle the event and transition to the new state
-    NewState = handle_event(Event, State),
-    {noreply, NewState};
+become_leader() ->
+    gen_statem:call(?MODULE, become_leader).
 
-handle_cast(_Msg, State) ->
-    %% Unknown message, ignore it
-    {noreply, State}.
+become_slave() ->
+    gen_statem:call(?MODULE, become_slave).
 
-handle_info(_Info, State) ->
-    %% No special handling of Erlang system messages
-    {noreply, State}.
+%%% State callbacks
+%%% 
+%%% Leader
 
-terminate(_Reason, _State) ->
-    %% Perform any cleanup actions if needed
+leader(enter, _From, Data) ->
+    {keep_state, Data};
+
+leader(time_tick, State, Data) -> % time_tick in leader state
+    io:format("time_tick in leader state~n"),
+    {next_state, slave, Data};
+
+leader(become_slave, _From, Data) ->
+    {next_state, slave, [{state_timeout, 5000, time_tick}]}; % Reset time_tick
+
+leader(become_leader, _From, Data) ->
+    {keep_state, Data};
+
+leader(_Event, _From, Data) -> % Catch-all for other events
+    io:format("Unhandled event in leader~n"),
+    {keep_state_and_data, [{state_timeout, 5000, time_tick}]}.
+
+
+
+%%% Slave
+
+
+slave(enter, _From, Data) ->
+    {keep_state, Data};
+
+slave(state_timeout, State, Data) -> % time_tick in slave state
+    io:format("time_tick in slave state~n"),
+    {next_state, leader, Data};
+
+slave(become_leader, _From, Data) ->
+    {next_state, leader, Data};
+
+slave(become_slave, _From, Data) ->
+    {keep_state, Data};
+
+slave(time_tick, _From, Data) ->
+    Location = Data#data.location,
+    waypoint_update(Data),
+    step(),
+    {keep_state, Data};
+
+slave(vector_update, _From, Data) ->
+    waypoint_update(Location, Velocity),
+    {keep_state, Data};
+
+
+slave(_Event, _From, Data) -> % Catch-all for other events
+    io:format("Unhandled event in slave~n"),
+    {keep_state_and_data, [{state_timeout, 5000, time_tick}]}.
+
+%%% Boilerplate callbacks
+
+terminate(_Reason, _State, _Data) ->
     ok.
 
-code_change(_OldVsn, State, _Extra) ->
-    %% Code change handling, usually not needed for FSM
-    {ok, State}.
+code_change(_OldVsn, State, Data, _Extra) ->
+    {ok, State, Data}.
 
-%% FSM Logic
 
-handle_event(Event, State) ->
-    %% Define your FSM logic here, including state transitions based on events
-    case {State#state.current_state, Event} of
-        %% Example transition from state1 to state2 on receiving 'event1'
-        {state1, event1} -> handle_event1(State);
-        %% Add more transitions as needed
-        _ -> State %% No state change for unknown events, return the same state
-    end.
 
-%% Define state transition functions here
-
-handle_event1(State) ->
-    %% Perform actions for transitioning from state1 to state2
-    NewState = State#state{current_state = state2},
-    NewState.
-
-%% Add more state transition functions as needed for other states and events.
-
-%% FSM States
-
-initial_state() -> state1.
-state1() -> state2.
-state2() -> state1.
-%% Add more states as needed.
-
-update_location() ->
+%%% internal functions
+step() ->
     {Velocity_x,Velocity_y} = get(velocity),
     {Location_x,Location_y} = get(location),
     put(location,{Location_x+Velocity_x,Location_y+Velocity_y}).
 
-update_velocity({New_velocity_x,New_velocity_y}) ->
+fast_speed({New_velocity_x,New_velocity_y}) ->
     put(velocity,{New_velocity_x,New_velocity_y}).
 
-    %% Update the location of the drone
-    
+normal_speed({New_velocity_x,New_velocity_y}) ->
+    put(velocity,{New_velocity_x,New_velocity_y}).
+
+slow_speed({New_velocity_x,New_velocity_y}) ->
+    put(velocity,{New_velocity_x,New_velocity_y}).
+
+
+waypoint_update(Data) -> fuckyou.
