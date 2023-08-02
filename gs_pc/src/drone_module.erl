@@ -1,5 +1,6 @@
--module(drone_statem).
+-module(drone_module).
 -behaviour(gen_statem).
+-define(INDENTATION,{0,5}).
 
 -export([start_link/0]).
 -export([init/1, callback_mode/0, terminate/3, code_change/4]).
@@ -23,7 +24,7 @@ start_link() ->
 init([Location,GS_PID,Follower_PID,Self_id]) ->
     {ok, slave, #data{  timeout_ref=reset_timeout(),
                         location=Location,
-                        velocity={0,0},
+                        velocity=0,
                         waypoint=Location,
                         gs_pid=GS_PID,
                         follower_pid=Follower_PID,
@@ -84,14 +85,16 @@ slave(become_slave, _From, Data) ->
     {keep_state, Data};
 
 slave(time_tick, _From, Data) ->
-    Location = Data#data.location,
-    waypoint_update(Data),
-    step(),
+    % New_Data = step(Data),
+    reset_timeout(),
+    %% change Data to New_Data
     {keep_state, Data};
 
-slave(vector_update, _From, {Location,Velocity}) ->
-    waypoint_update(Location, Velocity),
-    {keep_state, Data};
+slave({vector_update,{Location,Theta}}, _From,Data) ->
+    New_Data = waypoint_update(Location, Theta, Data),
+
+    %%todo : send theta and location to follower
+    {keep_state,New_Data};
 
 
 slave(_Event, _From, Data) -> % Catch-all for other events
@@ -123,6 +126,18 @@ normal_speed({New_velocity_x,New_velocity_y}) ->
 slow_speed({New_velocity_x,New_velocity_y}) ->
     put(velocity,{New_velocity_x,New_velocity_y}).
 
+get_theta({X,Y}) ->
+    Angle = math:atan(Y / X),
+    case X >= 0 of
+        true -> Angle;
+        false -> Angle + math:pi()
+    end.
 
-waypoint_update({X,Y},{Vx,Vy}) -> fuckyou.
-    
+rotation_matrix({X,Y},Theta)->
+    {X_new,Y_new} = {X*math:cos(Theta)+Y*math:sin(Theta),Y*math:cos(Theta)-X*math:sin(Theta)},
+    {X_new,Y_new}.
+waypoint_update({X,Y},Theta,Data) ->
+    {X_new,Y_new} = rotation_matrix(?INDENTATION, Theta),
+    {X_old,Y_old}= Data#data.waypoint,
+    Data#data{waypoint={X_old-X_new,Y_old-Y_new}}.
+
