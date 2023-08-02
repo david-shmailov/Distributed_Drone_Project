@@ -2,7 +2,7 @@
 -author("Neriya").
 
 
--behaviour(gen_server).
+-behaviour(gen_statem).
 
 %% External API
 -export([start_link/0, trigger_event/2]).
@@ -11,8 +11,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
 %% State record - define your FSM states here
--record(state, {
-    current_state :: atom(),
+-record(state, {leader
     % Add any other state-specific data here
 }).
 
@@ -21,16 +20,17 @@
 %% -drone_to_follow_id -PID
 %% -velocity -{velocity_x,velocity_y} - {int,int}
 %% -location - {location_x,location_y} - {int,int}
+%% - order_number -int
 
 %% External API
 
 start_link() ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+    gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
 trigger_event(Pid, Event) ->
-    gen_server:cast(Pid, {trigger_event, Event}).
+    gen_statem:cast(Pid, {trigger_event, Event}).
 
-%% gen_server callbacks
+%% gen_statem callbacks
 
 init([]) ->
     InitialState = #state{
