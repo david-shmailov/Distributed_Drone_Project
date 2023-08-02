@@ -8,9 +8,10 @@
         "name": "Launch erlang",
         "type": "erlang",
         "request": "launch",
-        "cwd": "${workspaceRoot}",
-        "arguments": "-eval \"application:start(erl_ide)\"",
-        "preLaunchTask": "rebar3 compile"
+        "cwd": "${workspaceRoot}/gui_pc/",
+        "arguments": "-eval \"application:start(gui_pc)\"",
+        "preLaunchTask": "rebar3 compile",
+        // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       }
     ]
 }

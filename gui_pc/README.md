@@ -1,4 +1,4 @@
-erl_ide
+gui_pc
 =====
 
 An OTP application

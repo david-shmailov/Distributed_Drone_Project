@@ -6,7 +6,7 @@
       {
         "label": "rebar3 compile",
         "type": "shell",
-        "command": "rebar3 compile",
+        "command": "cd gui_pc && rebar3 compile",
         "group": {
           "kind": "build",
           "isDefault": true

@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc erl_ide top level supervisor.
+%% @doc gui_pc top level supervisor.
 %% @end
 %%%-------------------------------------------------------------------
 
--module(erl_ide_sup).
+-module(gui_pc_sup).
 
 -behaviour(supervisor).
 

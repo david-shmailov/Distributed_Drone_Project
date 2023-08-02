@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc erl_ide public API
+%% @doc gui_pc public API
 %% @end
 %%%-------------------------------------------------------------------
 
--module(erl_ide_app).
+-module(gui_pc_app).
 
 -behaviour(application).
 -import(gui_interface_server,[start_link/2]).
@@ -17,10 +17,10 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    erl_ide_sup:start_link(),
+    gui_pc_sup:start_link(),
     start_python_gui(),
     {ok, Pid} = gui_interface_server:start_link("localhost", 8000),
-    gen_server:call(Pid, {send_data, <<"hello world">>}),
+    gen_server:call(Pid, {send_data, <<"hello wworld">>}),
     % project_test:report(),
     timer:sleep(10000),
     stop(_StartType).
@@ -30,7 +30,7 @@ stop(_State) ->
 
 start_python_gui() ->
     io:format("Starting python GUI~n"),
-    Command = "python3 GUI/gui.py",
+    Command = "python3 Qt_GUI/gui.py",
     Port = open_port({spawn, Command}, []),
     Port ! {self(), close}.
 

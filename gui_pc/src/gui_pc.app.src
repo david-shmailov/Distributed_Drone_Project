@@ -1,8 +1,8 @@
-{application, erl_ide,
+{application, gui_pc,
  [{description, "An OTP application"},
   {vsn, "0.1.0"},
   {registered, []},
-  {mod, {erl_ide_app, []}},
+  {mod, {gui_pc_app, []}},
   {applications,
    [kernel,
     stdlib
