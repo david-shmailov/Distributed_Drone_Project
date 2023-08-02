@@ -5,12 +5,21 @@
     "version": "0.2.0",
     "configurations": [        
       {
-        "name": "Launch erlang",
+        "name": "Launch GUI PC",
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gui_pc/",
         "arguments": "-eval \"application:start(gui_pc)\"",
-        "preLaunchTask": "rebar3 compile",
+        "preLaunchTask": "rebar3 compile gui_pc",
+        // "runinterminal": ["cd gui_pc && rebar3", "shell"]
+      },
+      {
+        "name": "Launch GS PC",
+        "type": "erlang",
+        "request": "launch",
+        "cwd": "${workspaceRoot}/gs_pc/",
+        "arguments": "-eval \"application:start(gs_pc)\"",
+        "preLaunchTask": "rebar3 compile gs_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       }
     ]

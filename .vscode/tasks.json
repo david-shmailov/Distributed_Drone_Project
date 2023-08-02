@@ -4,9 +4,19 @@
     "version": "2.0.0",
     "tasks": [
       {
-        "label": "rebar3 compile",
+        "label": "rebar3 compile gui_pc",
         "type": "shell",
         "command": "cd gui_pc && rebar3 compile",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "problemMatcher": "$erlang"
+      },
+      {
+        "label": "rebar3 compile gs_pc",
+        "type": "shell",
+        "command": "cd gs_pc && rebar3 compile",
         "group": {
           "kind": "build",
           "isDefault": true
