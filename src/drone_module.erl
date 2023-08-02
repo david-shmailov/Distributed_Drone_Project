@@ -16,6 +16,12 @@
     % Add any other state-specific data here
 }).
 
+%%  Drone data record structure
+%% -ground_station_id - PID
+%% -drone_to_follow_id -PID
+%% -velocity -{velocity_x,velocity_y} - {int,int}
+%% -location - {location_x,location_y} - {int,int}
+
 %% External API
 
 start_link() ->
@@ -84,3 +90,14 @@ initial_state() -> state1.
 state1() -> state2.
 state2() -> state1.
 %% Add more states as needed.
+
+update_location() ->
+    {Velocity_x,Velocity_y} = get(velocity),
+    {Location_x,Location_y} = get(location),
+    put(location,{Location_x+Velocity_x,Location_y+Velocity_y}).
+
+update_velocity({New_velocity_x,New_velocity_y}) ->
+    put(velocity,{New_velocity_x,New_velocity_y}).
+
+    %% Update the location of the drone
+    
