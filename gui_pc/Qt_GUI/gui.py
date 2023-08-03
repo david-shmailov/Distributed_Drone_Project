@@ -6,6 +6,8 @@ from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene
 from PyQt5.QtGui import QBrush
 from PyQt5.QtCore import Qt, QThread , pyqtSignal
 from PyQt5 import uic
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtWidgets import QGraphicsPixmapItem
 import socket
 import math
 import time
@@ -113,6 +115,17 @@ class DroneGridApp(QMainWindow):
         # Set up QGraphicsScene
         self.scene = QGraphicsScene()
         self.scene.setSceneRect(0, 0, SIZE, SIZE)
+        # Load the map pixmap
+        map_pixmap = QPixmap("map.jpg")
+
+        # Create a pixmap item with the loaded pixmap
+        map_item = QGraphicsPixmapItem(map_pixmap)
+
+        # Adjust the pixmap to fit the scene size (OPTIONAL)
+        map_item.setPixmap(map_pixmap.scaled(SIZE, SIZE, Qt.KeepAspectRatio))
+
+        # Add the pixmap item to the scene
+        self.scene.addItem(map_item)
         self.graphicsView.setScene(self.scene)
         # add 4 borderlines:
         self.scene.addLine(0, 0, SIZE, 0)  # From (0, 0) to (SIZE, 0)
