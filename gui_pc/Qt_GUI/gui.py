@@ -12,52 +12,60 @@ import time
 import json
 
 SIZE = 650
-
-class MoveDroneThread(QThread):
+TIME_TICK = 0.1
+class TimingGenerator(QThread):
     # Define a signal that will be emitted with the new x and y values
-    move_signal = QtCore.pyqtSignal()
+    time_tick_signal = QtCore.pyqtSignal()
 
-    def __init__(self, drone_id):
+    def __init__(self):
         super().__init__()
-        self.drone_id = drone_id
         self.running = True
 
     def run(self):
         while self.running:
-            self.move_signal.emit()
-            time.sleep(0.05)
+            self.time_tick_signal.emit()
+            time.sleep(TIME_TICK)
 
     def stop(self):
         self.running = False
 
 
 class SocketListener(QThread):
-    messageReceived = QtCore.pyqtSignal(str)
+    droneUpdate = QtCore.pyqtSignal(tuple)
     def __init__(self,port):
         super().__init__()
         self.port = port
+        self.running = True
     def run(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.bind(("localhost", self.port))
-            s.listen()
+            s.listen(1)
             conn, addr = s.accept()
-            with conn:
+            print(f"GUI Connected on port {self.port}")
+            while self.running:
+                # with conn:
                 data = conn.recv(1024)
-                data = data.decode()
-                try:
-                    self.messageReceived.emit(json.loads(data))
-                except json.decoder.JSONDecodeError:
-                    self.messageReceived.emit(data)
+                if not data:
+                    break
+                data = data.decode("utf-8")
+                drone_tuple = tuple(int(x) for x in data.split(","))
+                self.droneUpdate.emit(drone_tuple)
+
+    def terminate(self):
+        self.running = False
+        super().terminate()
 
 
-class DoubleStream:
+class DoubleStream(QtCore.QObject):
+    textAvailable = QtCore.pyqtSignal(str)
     def __init__(self, text_edit):
+        super().__init__()
         self.text_edit = text_edit
         self.original_stdout = sys.stdout
 
     def write(self, text):
         self.original_stdout.write(text)  # Write to the original stdout
-        self.text_edit.append(text)  # Append text to QTextEdit
+        self.textAvailable.emit(text)  # Emit a signal with the stdout text
 
     def flush(self):
         # This can be left empty or you can implement any flush logic you need.
@@ -80,19 +88,15 @@ class DroneGridApp(QMainWindow):
 
         # Start the socket listener
         self.RT_socket_listener = SocketListener(self.port)
-        self.RT_socket_listener.messageReceived.connect(self.showMessage)
+        self.RT_socket_listener.droneUpdate.connect(self.update_drone)
         self.RT_socket_listener.start()
 
+        # start timing generator
+        self.TG_Thread = TimingGenerator()
+        self.TG_Thread.time_tick_signal.connect(self.move_drones_slot)
+        self.TG_Thread.start()
 
-        # for testing
-        # Initial angle in radians
-        self.theta = 0
 
-        # Define the radius of the circle
-        self.radius = 50
-
-        # Central point of the circle
-        self.center = QtCore.QPointF(SIZE/2, SIZE/2)
 
     def closeEvent(self, event):
         if hasattr(self, 'move_thread'):
@@ -103,7 +107,6 @@ class DroneGridApp(QMainWindow):
             self.RT_socket_listener.terminate()
             self.RT_socket_listener.wait()  # Wait for the thread to finish.
         sys.stdout = sys.stdout.original_stdout
-        del self.drones
         del self.scene
 
         super().closeEvent(event)
@@ -132,47 +135,52 @@ class DroneGridApp(QMainWindow):
         y = self.spinBox_y.value()
         self.move_drone("drone_1", x, y)
 
-    def add_drone(self, drone_id, x, y):
+    def add_drone(self, drone_id):
         triangle = create_triangle(self.icon_size)
         drone_item = QtWidgets.QGraphicsPolygonItem(triangle)
         drone_item.setBrush(QBrush(Qt.red))
-        drone_item.setPos(x, y)
+        drone_item.setPos(0, 0)
         self.scene.addItem(drone_item)
-        self.drones[drone_id] = drone_item
+        self.drones[drone_id] = {'obj':drone_item, 'movement':(0,0)}
 
-    def move_drone(self, drone_id, x, y):
+    def move_drone(self, drone_id, x, y, angle=None, speed=0):
         if drone_id in self.drones:
-            drone_item = self.drones[drone_id]
+            drone_item = self.drones[drone_id]['obj']
             # Calculate the angle of rotation based on movement direction
-            dx = x - drone_item.x()
-            dy = y - drone_item.y()
-            angle = math.atan2(dy, dx) * 180 / math.pi
-            drone_item.setRotation(angle+90)
-            drone_item.setPos(x, y)
-        else:
-            self.add_drone(drone_id, x, y)
+            if angle is None:
+                dx = x - drone_item.x()
+                dy = y - drone_item.y()
+                angle = -math.atan2(dy, dx) * 180 / math.pi
 
-    def fly_drone(self):
-        self.move_thread = MoveDroneThread("drone_1")
-        self.move_thread.move_signal.connect(self.move_drone_slot)
-        self.move_thread.start()
+            drone_item.setRotation(-angle+90)
+            drone_item.setPos(x, y)
+            self.drones[drone_id]['movement'] = (angle, speed)
+        else:
+            self.add_drone(drone_id)
+            self.move_drone(drone_id, x, y, angle, speed)
+
+
+
+    # slots
 
     @QtCore.pyqtSlot(str)
-    def showMessage(self,message):
-        print(message)
+    def update_console(self, text):
+        self.console.append(text)
+
+    @QtCore.pyqtSlot(tuple)
+    def update_drone(self,drone_tuple):
+        drone_id, x, y, theta, speed = drone_tuple
+        self.move_drone(drone_id, x, y, theta,speed)
 
     @QtCore.pyqtSlot()
-    def move_drone_slot(self):
-        # Calculate new x and y using trigonometry
-        x = self.center.x() + self.radius * math.cos(self.theta)
-        y = self.center.y() + self.radius * math.sin(self.theta)
+    def move_drones_slot(self):
+        for drone_id, drone in self.drones.items():
+            angle, speed = drone['movement']
+            theta = angle * math.pi / 180
+            x = drone['obj'].x() + speed * math.cos(theta)
+            y = drone['obj'].y() + speed * math.sin(-theta)
+            self.move_drone(drone_id, x, y, angle, speed)
 
-        # Move the drone to the new position
-        self.move_drone("drone_1", x, y)
-
-        # Increment the angle. This determines the speed of the circular motion.
-        # You can adjust the value added to self.theta to make it move faster/slower.
-        self.theta += 0.1
 
 
 
@@ -194,13 +202,9 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = DroneGridApp(args.port)
     window.show()
-    print(f"GUI Connected on port {args.port}")
 
-    # Example usage:
-    window.add_drone("drone_1", 2, 3)
-    window.move_drone("drone_1", 5, 5)
-    window.add_drone("drone_2", 7, 7)
-    window.fly_drone()
+
+
 
 
     sys.exit(app.exec_())
