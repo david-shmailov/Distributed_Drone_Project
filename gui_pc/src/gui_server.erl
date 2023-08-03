@@ -14,7 +14,7 @@
          code_change/3]).
 
 -record(state, {socket = undefined}).
--define(RETRY_DELAY, 5000).
+-define(RETRY_DELAY, 1000).
 -record(drone, {id, location, theta, speed}).
 
 
@@ -28,11 +28,11 @@ init([Host, Port]) ->
     connect_with_retry(Host, Port, ?RETRY_DELAY).
 
 connect_with_retry(Host, Port, Delay) ->
-    case gen_tcp:connect(Host, Port, [binary, {active, false}]) of
+    case gen_tcp:connect(Host, Port, [binary, {packet, 0}]) of
         {ok, Socket} -> 
             {ok, #state{socket = Socket}};
         {error, econnrefused} ->
-            io:format("Connection refused. Retrying in ~p milliseconds.~n", [Delay]),
+            io:format("Port ~p connection refused. Retrying in ~p milliseconds.~n", [Port,Delay]),
             timer:sleep(Delay),
             connect_with_retry(Host, Port, Delay);
         {error, OtherReason} ->
@@ -63,7 +63,7 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
     io:format("Drone update: ~p~n", [Drone]),
-    Binary = term_to_binary(drone_to_list(Drone)),
+    Binary = drone_to_binary(Drone),
     send_to_gui(Binary, State),
     {noreply, State};
 
@@ -86,8 +86,10 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 
 
-drone_to_list(Drone) ->
-    [Drone#drone.id, Drone#drone.location, Drone#drone.theta, Drone#drone.speed].
+drone_to_binary(Drone) ->
+    List = [Drone#drone.id] ++ tuple_to_list(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed],
+    String = string:join([integer_to_list(X) || X <- List], ","),
+    list_to_binary(String).
     
 
 

@@ -18,10 +18,10 @@
 
 start(_StartType, _StartArgs) ->
     {ok, SupPid} = gui_pc_sup:start_link(),
-    Port = 8001,
-    start_python_gui(Port),
+    Port = 8000,
+    % start_python_gui(Port),
     {ok, Pid} = gui_server:start_link("localhost", Port),
-    gen_server:call(Pid, {send_data, <<"hello world">>}),
+    % gen_server:call(Pid, {send_data, <<"hello world">>}),
     {ok, SupPid}.
 
 stop(_State) ->
