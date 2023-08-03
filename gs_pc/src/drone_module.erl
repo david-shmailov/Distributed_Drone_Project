@@ -1,6 +1,7 @@
 -module(drone_module).
 -behaviour(gen_statem).
 -define(INDENTATION,{0,5}).
+-define(STEP_SIZE,1).
 
 -export([start_link/0]).
 -export([init/1, callback_mode/0, terminate/3, code_change/4]).
@@ -15,7 +16,8 @@
     waypoint,
     gs_pid,
     follower_pid,
-    self_id
+    self_id,
+    points_to_follow
 }).
 
 start_link() ->
@@ -28,7 +30,8 @@ init([Location,GS_PID,Follower_PID,Self_id]) ->
                         waypoint=Location,
                         gs_pid=GS_PID,
                         follower_pid=Follower_PID,
-                        self_id=Self_id}
+                        self_id=Self_id,
+                        points_to_follow=[]}
                     }. % Initially a slave with a 5-second time_tick.
 
 callback_mode() ->
@@ -85,15 +88,14 @@ slave(become_slave, _From, Data) ->
     {keep_state, Data};
 
 slave(time_tick, _From, Data) ->
-    % New_Data = step(Data),
     reset_timeout(),
-    %% change Data to New_Data
-    {keep_state, Data};
+    New_Data = step(Data),
+    {keep_state, New_Data};
 
 slave({vector_update,{Location,Theta}}, _From,Data) ->
     New_Data = waypoint_update(Location, Theta, Data),
-
-    %%todo : send theta and location to follower
+    %%% send the new theta and location to the follower
+    gen_statem:cast(Data#data.follower_pid, {vector_update,{New_Data#data.location,get_theta(New_Data)}}),
     {keep_state,New_Data};
 
 
@@ -112,21 +114,48 @@ code_change(_OldVsn, State, Data, _Extra) ->
 
 
 %%% internal functions
-step() ->
-    {Velocity_x,Velocity_y} = get(velocity),
-    {Location_x,Location_y} = get(location),
-    put(location,{Location_x+Velocity_x,Location_y+Velocity_y}).
+%%% 
+%%% step generic for both slave and leader, but the velocity(or step size) is different
+%%%               : step should be called in time_tick
 
-fast_speed({New_velocity_x,New_velocity_y}) ->
-    put(velocity,{New_velocity_x,New_velocity_y}).
+step(Data)->
+    case state of
+        leader ->
+            Angle = get_theta(Data),
+            {X,Y} = Data#data.location,
+            Distance_to_waypoint = get_distance(Data#data.waypoint,Data#data.location),
+            case Distance_to_waypoint>=?STEP_SIZE of
+                true->
+                    Data#data{location={X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}}; %update location
+                false->
+                    step(next_waypoint(Data))
+            end;
 
-normal_speed({New_velocity_x,New_velocity_y}) ->
-    put(velocity,{New_velocity_x,New_velocity_y}).
+        slave ->
+            %the slave will get to his waypoint in a single step and update the waypoint to be a single step size away from his new location
+            {X,Y} = Data#data.waypoint,
+            Angle = get_theta(Data),
+            Data#data{location={X,Y},waypoint={X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}}
+    end.
 
-slow_speed({New_velocity_x,New_velocity_y}) ->
-    put(velocity,{New_velocity_x,New_velocity_y}).
 
-get_theta({X,Y}) ->
+
+
+next_waypoint(Data) ->%%that function is only for leader state
+    case Data#data.points_to_follow of
+        [] -> Data#data.waypoint;
+        [H|T] ->
+             Data#data{waypoint=H,points_to_follow=T}
+    end.
+
+get_distance({X1,Y1},{X2,Y2}) ->
+    math:sqrt((X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2)).
+
+get_theta(Data) ->
+    {X_old,Y_old} =Data#data.waypoint,
+    {X_new,Y_new} = Data#data.location,
+    X = X_old - X_new,
+    Y = Y_old - Y_new,
     Angle = math:atan(Y / X),
     case X >= 0 of
         true -> Angle;
