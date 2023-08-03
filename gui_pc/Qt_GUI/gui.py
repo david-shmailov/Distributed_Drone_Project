@@ -11,7 +11,7 @@ import math
 import time
 import json
 
-SIZE = 1400
+SIZE = 650
 TIME_TICK = 0.1
 class TimingGenerator(QThread):
     # Define a signal that will be emitted with the new x and y values
