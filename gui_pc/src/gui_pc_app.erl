@@ -17,22 +17,21 @@
 -export([start/2, stop/1]).
 
 start(_StartType, _StartArgs) ->
-    gui_pc_sup:start_link(),
-    % start_python_gui(),
-    {ok, Pid} = gui_server:start_link("localhost", 8000),
-    gen_server:call(Pid, {send_data, <<"hello wworld">>}),
-    % project_test:report(),
-    timer:sleep(10000),
-    stop(_StartType).
+    {ok, SupPid} = gui_pc_sup:start_link(),
+    Port = 8001,
+    start_python_gui(Port),
+    {ok, Pid} = gui_server:start_link("localhost", Port),
+    gen_server:call(Pid, {send_data, <<"hello world">>}),
+    {ok, SupPid}.
 
 stop(_State) ->
     ok. % todo causes bad return 
 
-start_python_gui() ->
+start_python_gui(Port) ->
     io:format("Starting python GUI~n"),
-    Command = "python3 Qt_GUI/gui.py",
-    Port = open_port({spawn, Command}, []),
-    Port ! {self(), close}.
+    Command = "python3 Qt_GUI/gui.py --port " ++ integer_to_list(Port) ++ " &",
+    Cmd_Port = open_port({spawn, Command}, []),
+    Cmd_Port ! {self(), close}.
 
 init_tables() ->
     GS1_ETS = ets:new(gs1_ets, [named_table, public, {write_concurrency, true}]),

@@ -15,16 +15,16 @@
 
 -record(state, {socket = undefined}).
 -define(RETRY_DELAY, 5000).
-
+-record(drone, {id, location, theta, speed}).
 
 
 start_link(Host, Port) ->
-    gen_server:start_link({global, ?MODULE}, ?MODULE, [Host, Port], []).
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Host, Port], []).
 
 
 
 init([Host, Port]) ->
-    send_message_to_gs({establish_comm, <<"hello world">>}),
+    % send_message_to_gs({establish_comm, <<"hello world">>}),
     connect_with_retry(Host, Port, ?RETRY_DELAY).
 
 connect_with_retry(Host, Port, Delay) ->
@@ -56,10 +56,19 @@ handle_call({send_data, Data}, _From, #state{socket = Socket} = State) ->
         ok -> {reply, ok, State};
         {error, Reason} -> {reply, {error, Reason}, State}
     end;
+
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
 
+
+handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
+    io:format("Drone update: ~p~n", [Drone]),
+    Binary = term_to_binary(drone_to_list(Drone)),
+    send_to_gui(Binary, State),
+    {noreply, State};
+
 handle_cast(_Msg, State) ->
+    io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->
@@ -75,3 +84,15 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions
+
+
+drone_to_list(Drone) ->
+    [Drone#drone.id, Drone#drone.location, Drone#drone.theta, Drone#drone.speed].
+    
+
+
+send_to_gui(Data, #state{socket = Socket} = State) ->
+    case gen_tcp:send(Socket, Data) of
+        ok -> {reply, ok, State};
+        {error, Reason} -> {reply, {error, Reason}, State}
+    end.

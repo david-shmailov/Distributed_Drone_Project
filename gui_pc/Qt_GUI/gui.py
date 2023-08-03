@@ -1,3 +1,4 @@
+import argparse
 import os.path
 import sys
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -8,6 +9,7 @@ from PyQt5 import uic
 import socket
 import math
 import time
+import json
 
 SIZE = 650
 
@@ -31,15 +33,21 @@ class MoveDroneThread(QThread):
 
 class SocketListener(QThread):
     messageReceived = QtCore.pyqtSignal(str)
-
+    def __init__(self,port):
+        super().__init__()
+        self.port = port
     def run(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("localhost", 8000))
+            s.bind(("localhost", self.port))
             s.listen()
             conn, addr = s.accept()
             with conn:
                 data = conn.recv(1024)
-                self.messageReceived.emit(data.decode())
+                data = data.decode()
+                try:
+                    self.messageReceived.emit(json.loads(data))
+                except json.decoder.JSONDecodeError:
+                    self.messageReceived.emit(data)
 
 
 class DoubleStream:
@@ -56,14 +64,14 @@ class DoubleStream:
         pass
 
 class DroneGridApp(QMainWindow):
-    def __init__(self):
+    def __init__(self, port):
         super().__init__()
         GUI_folder = os.path.dirname(__file__)
         # Load the UI at runtime
         uic.loadUi(f'{GUI_folder}/gui_frontend.ui', self)
         # Redirect stdout to the text edit
         sys.stdout = DoubleStream(self.console)
-
+        self.port = port
         self.scene = None
         self.draw_scene()
         self.icon_size = 10
@@ -71,7 +79,7 @@ class DroneGridApp(QMainWindow):
         self.connect_signals()
 
         # Start the socket listener
-        self.RT_socket_listener = SocketListener()
+        self.RT_socket_listener = SocketListener(self.port)
         self.RT_socket_listener.messageReceived.connect(self.showMessage)
         self.RT_socket_listener.start()
 
@@ -178,9 +186,15 @@ def create_triangle(size):
 
 
 if __name__ == '__main__':
+    # argument parser
+    parser = argparse.ArgumentParser(description='Drone GUI')
+    parser.add_argument('--port', type=int, default=8000, help='port number for communication with gui_pc erlang node',
+                        required=False)
+    args = parser.parse_args()
     app = QApplication(sys.argv)
-    window = DroneGridApp()
+    window = DroneGridApp(args.port)
     window.show()
+    print(f"GUI Connected on port {args.port}")
 
     # Example usage:
     window.add_drone("drone_1", 2, 3)
