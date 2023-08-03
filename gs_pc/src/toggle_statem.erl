@@ -14,13 +14,27 @@
 
 %%Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow
 start_link() ->
-    List = [{0,0},'gs_server',0,0,'slave',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
-    gen_statem:start_link({local, ?MODULE}, ?MODULE, List, []).
+    % List = [{0,0},'gs_server',0,0,'slave',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
+    List = [{0,0},'gs_server',slave,{0,0}],
+    gen_statem:start_link(?MODULE, List, []).
 
 stop() ->
     gen_statem:stop(?MODULE).
 
 % Initialization of the state machine
+%%%-------------------------------------------------------------------
+%%% @doc Initialize the state machine.
+%%% minimial init([Location,GS_PID,State]) 
+%%% full init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow])
+%%% @end
+init([Location,GS_PID,State,Waypoint])->
+    io:format("Init~n"),
+    put(location, Location),
+    put(gs_pid, GS_PID),
+    put(state, State),
+    put(waypoint, Waypoint),
+    {ok, State, [], [{state_timeout, ?TIMEOUT, time_tick}]};
+
 init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow]) ->
     io:format("Init~n"),
     put(location, Location),
@@ -59,6 +73,10 @@ slave(cast,{follower_update,PID},_From)->
     io:format("cast follower_update in slave~n"),
     put(follower_pid, PID),
     {keep_state,[]};
+slave(cast,{update_value,{Key,Value}},_From) ->
+    io:format("cast update_value in slave~n"),
+    put(Key,Value),
+    {keep_state,[]};
 
 slave(_Event, _Data, _From) ->
     io:format("unknown event ~p in slave~n", [_Event]),
@@ -71,6 +89,10 @@ leader(state_timeout, _Data, _From) ->
     step(get(state)),
     io:format("location is ~p~n", [get(location)]),
     {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+leader(cast,{update_value,{Key,Value}},_From) ->
+    io:format("cast update_value in leader~n"),
+    put(Key,Value),
+    {keep_state,[]};
 
 leader(_Event, _Data, _From) ->
     io:format("unknown event ~p in leader~n", [_Event]),
@@ -132,10 +154,16 @@ step(State)->
             end;
 
         slave ->
+            Distance_to_waypoint = get_distance(get(waypoint),get(location)),
             %the slave will get to his waypoint in a single step and update the waypoint to be a single step size away from his new location
-            {X,Y} = get(waypoint),
-            Angle = get_theta(),
-            put(location,{X,Y}),
-            io:format("the waypoint is~p~n",[{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}]),
-            put(waypoint,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)})
+            case Distance_to_waypoint >= ?STEP_SIZE of
+                true ->
+                    {X,Y} = get(waypoint),
+                    Angle = get_theta(),
+                    put(location,{X,Y}),
+                    io:format("the waypoint is~p~n",[{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}]),
+                    put(waypoint,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)});
+                false ->
+                    put(location,get(waypoint))
+                end
     end.
