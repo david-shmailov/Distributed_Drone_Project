@@ -2,7 +2,7 @@
 -behaviour(gen_statem).
 
 % API functions
--export([start_link/0, stop/0]).
+-export([start_link/1, stop/0]).
 
 % gen_statem callbacks
 -export([init/1, terminate/3, callback_mode/0, code_change/4]).
@@ -13,9 +13,9 @@
 -define(STEP_SIZE,1).
 
 %%Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow
-start_link() ->
+start_link(ID) ->
     % List = [{0,0},'gs_server',0,0,'slave',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
-    List = [{0,0},'gs_server',slave,{0,0}],
+    List = [{0,0},'gs_server',slave,{0,0},ID],
     gen_statem:start_link(?MODULE, List, []).
 
 stop() ->
@@ -27,12 +27,13 @@ stop() ->
 %%% minimial init([Location,GS_PID,State]) 
 %%% full init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow])
 %%% @end
-init([Location,GS_PID,State,Waypoint])->
+init([Location,GS_PID,State,Waypoint,ID])->
     io:format("Init~n"),
     put(location, Location),
     put(gs_pid, GS_PID),
     put(state, State),
     put(waypoint, Waypoint),
+    put(self_id, ID),
     {ok, State, [], [{state_timeout, ?TIMEOUT, time_tick}]};
 
 init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow]) ->
@@ -68,11 +69,15 @@ slave(vector_update, _From, {Location,Theta}) ->
 slave(cast,{vector_update, {Location,Theta}}, _From) ->
     io:format("cast vector_update in slave~n"),
     waypoint_update(Location, Theta),
+    try gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) of
+        __ ->
+            io:format("Follower is alive~n")
+    catch
+        _:_ ->
+            io:format("Follower is not alive~n")
+    end,
     {keep_state,[]};
-slave(cast,{follower_update,PID},_From)->
-    io:format("cast follower_update in slave~n"),
-    put(follower_pid, PID),
-    {keep_state,[]};
+
 slave(cast,{update_value,{Key,Value}},_From) ->
     io:format("cast update_value in slave~n"),
     put(Key,Value),
@@ -156,7 +161,7 @@ step(State)->
         slave ->
             Distance_to_waypoint = get_distance(get(waypoint),get(location)),
             %the slave will get to his waypoint in a single step and update the waypoint to be a single step size away from his new location
-            case Distance_to_waypoint >= ?STEP_SIZE of
+            case Distance_to_waypoint >= (?STEP_SIZE/2) of
                 true ->
                     {X,Y} = get(waypoint),
                     Angle = get_theta(),
