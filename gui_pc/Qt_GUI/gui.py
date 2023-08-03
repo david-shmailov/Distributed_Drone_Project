@@ -37,14 +37,12 @@ class SocketListener(QThread):
         self.port = port
         self.running = True
     def run(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             s.bind(("localhost", self.port))
-            s.listen(1)
-            conn, addr = s.accept()
-            print(f"GUI Connected on port {self.port}")
+            print(f"GUI Listening on UDP port {self.port}")
             while self.running:
-                # with conn:
-                data = conn.recv(1024)
+                data, addr = s.recvfrom(1024)
                 if not data:
                     break
                 data = data.decode("utf-8")

@@ -16,12 +16,13 @@
 % -import(project_test,[report/0]).
 -export([start/2, stop/1]).
 
+
+
 start(_StartType, _StartArgs) ->
     {ok, SupPid} = gui_pc_sup:start_link(),
     Port = 8000,
-    % start_python_gui(Port),
-    {ok, Pid} = gui_server:start_link("localhost", Port),
-    % gen_server:call(Pid, {send_data, <<"hello world">>}),
+    start_python_gui(Port),
+    gui_server:start_link(Port),
     {ok, SupPid}.
 
 stop(_State) ->

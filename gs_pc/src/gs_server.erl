@@ -13,7 +13,7 @@
          code_change/3]).
 
 -record(state, {}).
--define(RETRY_DELAY, 5000).
+-define(RETRY_DELAY, 1000).
 
 % record for drone location and speed update:
 -record(drone, {id, location, theta, speed}).
@@ -30,8 +30,7 @@ init([]) ->
 
 handle_call({drone_update, Drone}, _From, State) when is_record(Drone,drone) ->
     io:format("Drone update: ~p~n", [Drone]),
-    gen_server:cast({gui_server, 'gui@localhost'} , {drone_update, Drone}),
-    % gen_server:cast({gui_server, 'gui@localhost'} , {drone_update, <<"hello">>}),
+    gen_server:cast({'gui_server', 'gui@localhost'} , {drone_update, Drone}),
 
     {reply, ok, State};
 
@@ -41,9 +40,11 @@ handle_call({establish_comm, _}, _From, State) ->
     {reply, Reply , State};
 
 handle_call(_Request, _From, State) ->
+    io:format("Unknown message: ~p~n", [_Request]),
     {reply, ignored, State}.
 
 handle_cast(_Msg, State) ->
+    io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
 
 handle_info(_Info, State) ->

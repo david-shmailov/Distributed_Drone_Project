@@ -3,7 +3,7 @@
 
 -behaviour(gen_server).
 
--export([start_link/2]).
+-export([start_link/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -13,34 +13,18 @@
          terminate/2,
          code_change/3]).
 
--record(state, {socket = undefined}).
+-record(state, {port = undefined}).
 -define(RETRY_DELAY, 1000).
 -record(drone, {id, location, theta, speed}).
 
 
-start_link(Host, Port) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Host, Port], []).
+start_link(Port) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Port], []).
 
 
 
-init([Host, Port]) ->
-    % send_message_to_gs({establish_comm, <<"hello world">>}),
-    connect_with_retry(Host, Port, ?RETRY_DELAY).
-
-connect_with_retry(Host, Port, Delay) ->
-    case gen_tcp:connect(Host, Port, [binary, {packet, 0}]) of
-        {ok, Socket} -> 
-            {ok, #state{socket = Socket}};
-        {error, econnrefused} ->
-            io:format("Port ~p connection refused. Retrying in ~p milliseconds.~n", [Port,Delay]),
-            timer:sleep(Delay),
-            connect_with_retry(Host, Port, Delay);
-        {error, OtherReason} ->
-            io:format("Error: ~p~n", [OtherReason]),
-            {stop, OtherReason}
-    end.
-
-
+init([Port]) ->
+    {ok, #state{port = Port }}.
 
 
 send_message_to_gs(Message) ->
@@ -51,11 +35,7 @@ send_message_to_gs(Message) ->
     ok.
 
 
-handle_call({send_data, Data}, _From, #state{socket = Socket} = State) ->
-    case gen_tcp:send(Socket, Data) of
-        ok -> {reply, ok, State};
-        {error, Reason} -> {reply, {error, Reason}, State}
-    end;
+%% gen_server callbacks
 
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
@@ -74,8 +54,7 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, #state{socket = Socket}) ->
-    gen_tcp:close(Socket),
+terminate(_Reason, _State) ->
     ok.
 
 
@@ -93,8 +72,14 @@ drone_to_binary(Drone) ->
     
 
 
-send_to_gui(Data, #state{socket = Socket} = State) ->
-    case gen_tcp:send(Socket, Data) of
-        ok -> {reply, ok, State};
-        {error, Reason} -> {reply, {error, Reason}, State}
-    end.
+% send_to_gui(Data, #state{socket = Socket} = State) ->
+%     case gen_udp:send(Socket, Data) of
+%         ok -> {reply, ok, State};
+%         {error, Reason} -> {reply, {error, Reason}, State}
+%     end.
+
+send_to_gui(Data, #state{port = Port}) ->
+    % Create a socket (this doesn't bind to the port, it's just for sending)
+    {ok, Socket} = gen_udp:open(0),
+    gen_udp:send(Socket, "localhost", Port, Data),
+    gen_udp:close(Socket).
