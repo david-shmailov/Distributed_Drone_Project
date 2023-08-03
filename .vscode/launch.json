@@ -9,7 +9,7 @@
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gui_pc/",
-        "arguments": "-eval \"application:start(gui_pc)\"",
+        "arguments": "-sname gui@localhost -setcookie cookie -eval \"application:start(gui_pc)\"",
         "preLaunchTask": "rebar3 compile gui_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       },
@@ -18,7 +18,7 @@
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gs_pc/",
-        "arguments": "-eval \"application:start(gs_pc)\"",
+        "arguments": "-sname gs1@localhost -setcookie cookie -eval \"application:start(gs_pc)\"",
         "preLaunchTask": "rebar3 compile gs_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       }
