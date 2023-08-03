@@ -3,7 +3,7 @@
 -define(INDENTATION,{0,5}).
 -define(STEP_SIZE,1).
 
--export([start_link/1]).
+-export([start_link/1,test/0]).
 -export([init/1, callback_mode/0, terminate/3, code_change/4]).
 -export([leader/3, slave/3]).
 
@@ -20,15 +20,17 @@
     points_to_follow
 }).
 
-
+test() ->
+    io:format("test~n"),
+    start_link([{0,0},0,0,0,'leader',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]]).
 start_link(Data) ->
-    gen_statem:start_link(?MODULE, Data,[]).
+    gen_statem:start_link({local, ?MODULE}, ?MODULE, Data, []).
 
-init([Location,GS_PID,Follower_PID,Self_id,State,Points_to_follow]) ->
+init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow]) ->
     {ok, State, #data{  timeout_ref=reset_timeout(),
                         location=Location,
                         velocity=0,
-                        waypoint=Location,
+                        waypoint=Waypoint,
                         gs_pid=GS_PID,
                         follower_pid=Follower_PID,
                         self_id=Self_id,
@@ -40,7 +42,9 @@ callback_mode() ->
 
 reset_timeout() ->
     io:format("reset_timeout~n"),
-    {state_timeout, 5000, time_tick}.
+    {keep_state, 5000, time_tick}.
+    % erlang:send_after(100, self(), time_tick).
+    
 
 %% API functions
 
@@ -54,12 +58,15 @@ become_slave() ->
 %%% 
 %%% Leader
 
+
 leader(enter, _From, Data) ->
     {keep_state, Data};
 
-leader(time_tick, State, Data) -> % time_tick in leader state
+leader(time_tick, _From, Data) -> % time_tick in leader state
     io:format("time_tick in leader state~n"),
-    {next_state, slave, Data};
+    New = step(leader,Data),
+    New_Data = New#data{timeout_ref=reset_timeout()},
+    {keep_state, New_Data};
 
 leader(become_slave, _From, Data) ->
     {next_state, slave, [{state_timeout, 5000, time_tick}]}; % Reset time_tick
@@ -67,9 +74,9 @@ leader(become_slave, _From, Data) ->
 leader(become_leader, _From, Data) ->
     {keep_state, Data};
 
-leader(_Event, _From, Data) -> % Catch-all for other events
-    io:format("Unhandled event in leader~n"),
-    {keep_state_and_data, [{state_timeout, 5000, time_tick}]}.
+leader(Event, _From, Data) -> % Catch-all for other events
+    io:format("Unhandled event in leader~n~p~n",[Event]),
+    {keep_state, Data}.
 
 
 
@@ -90,8 +97,10 @@ slave(become_slave, _From, Data) ->
     {keep_state, Data};
 
 slave(time_tick, _From, Data) ->
-    reset_timeout(),
-    New_Data = step(slave,Data),
+    io:format("time_tick in slave state~n"),
+    % reset_timeout(),
+    New = step(slave,Data),
+    New_Data = New#data{timeout_ref=reset_timeout()},
     io:format("The location:~p",[New_Data#data.location]),
     {keep_state, New_Data};
 
@@ -104,7 +113,8 @@ slave({vector_update,{Location,Theta}}, _From,Data) ->
 
 slave(_Event, _From, Data) -> % Catch-all for other events
     io:format("Unhandled event in slave~n"),
-    {keep_state_and_data, [{state_timeout, 5000, time_tick}]}.
+    {keep_state_and_data, Data}.
+%%[{state_timeout, 5000, time_tick}]}
 
 %%% Boilerplate callbacks
 
