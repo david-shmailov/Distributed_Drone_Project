@@ -3,7 +3,7 @@
 -define(INDENTATION,{0,5}).
 -define(STEP_SIZE,1).
 
--export([start_link/0]).
+-export([start_link/1]).
 -export([init/1, callback_mode/0, terminate/3, code_change/4]).
 -export([leader/3, slave/3]).
 
@@ -20,24 +20,26 @@
     points_to_follow
 }).
 
-start_link() ->
-    gen_statem:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-init([Location,GS_PID,Follower_PID,Self_id]) ->
-    {ok, slave, #data{  timeout_ref=reset_timeout(),
+start_link(Data) ->
+    gen_statem:start_link(?MODULE, Data,[]).
+
+init([Location,GS_PID,Follower_PID,Self_id,State,Points_to_follow]) ->
+    {ok, State, #data{  timeout_ref=reset_timeout(),
                         location=Location,
                         velocity=0,
                         waypoint=Location,
                         gs_pid=GS_PID,
                         follower_pid=Follower_PID,
                         self_id=Self_id,
-                        points_to_follow=[]}
+                        points_to_follow=Points_to_follow}
                     }. % Initially a slave with a 5-second time_tick.
 
 callback_mode() ->
     state_functions.
 
 reset_timeout() ->
+    io:format("reset_timeout~n"),
     {state_timeout, 5000, time_tick}.
 
 %% API functions
@@ -89,7 +91,8 @@ slave(become_slave, _From, Data) ->
 
 slave(time_tick, _From, Data) ->
     reset_timeout(),
-    New_Data = step(Data),
+    New_Data = step(slave,Data),
+    io:format("The location:~p",[New_Data#data.location]),
     {keep_state, New_Data};
 
 slave({vector_update,{Location,Theta}}, _From,Data) ->
@@ -118,8 +121,8 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% step generic for both slave and leader, but the velocity(or step size) is different
 %%%               : step should be called in time_tick
 
-step(Data)->
-    case state of
+step(State,Data)->
+    case State of
         leader ->
             Angle = get_theta(Data),
             {X,Y} = Data#data.location,
@@ -128,7 +131,7 @@ step(Data)->
                 true->
                     Data#data{location={X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}}; %update location
                 false->
-                    step(next_waypoint(Data))
+                    step(State,next_waypoint(Data))
             end;
 
         slave ->
@@ -167,6 +170,6 @@ rotation_matrix({X,Y},Theta)->
     {X_new,Y_new}.
 waypoint_update({X,Y},Theta,Data) ->
     {X_new,Y_new} = rotation_matrix(?INDENTATION, Theta),
-    {X_old,Y_old}= Data#data.waypoint,
-    Data#data{waypoint={X_old-X_new,Y_old-Y_new}}.
+    % {X_old,Y_old}= Data#data.waypoint,
+    Data#data{waypoint={X-X_new,Y-Y_new}}.
 
