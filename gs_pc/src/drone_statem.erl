@@ -1,4 +1,4 @@
--module(drone_module).
+-module(drone_statem).
 -behaviour(gen_statem).
 -define(INDENTATION,{0,5}).
 -define(STEP_SIZE,1).
@@ -23,6 +23,7 @@
 test() ->
     io:format("test~n"),
     start_link([{0,0},0,0,0,'leader',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]]).
+
 start_link(Data) ->
     gen_statem:start_link({local, ?MODULE}, ?MODULE, Data, []).
 
@@ -42,7 +43,8 @@ callback_mode() ->
 
 reset_timeout() ->
     io:format("reset_timeout~n"),
-    {keep_state, 5000, time_tick}.
+    [{state_timeout, 5000, time_tick}].
+    % {keep_state, 5000, time_tick}.
     % erlang:send_after(100, self(), time_tick).
     
 
@@ -60,13 +62,13 @@ become_slave() ->
 
 
 leader(enter, _From, Data) ->
-    {keep_state, Data};
+    io:format("enter leader~n"),
+    {keep_state, Data, reset_timeout()};
 
 leader(time_tick, _From, Data) -> % time_tick in leader state
     io:format("time_tick in leader state~n"),
     New = step(leader,Data),
-    New_Data = New#data{timeout_ref=reset_timeout()},
-    {keep_state, New_Data};
+    {keep_state, New, reset_timeout()};
 
 leader(become_slave, _From, Data) ->
     {next_state, slave, [{state_timeout, 5000, time_tick}]}; % Reset time_tick
