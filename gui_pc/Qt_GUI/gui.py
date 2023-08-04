@@ -82,7 +82,7 @@ class DroneGridApp(QMainWindow):
         self.port = port
         self.scene = None
         self.draw_scene()
-        self.icon_size = 10
+        self.drone_icon_size = 10
         self.drones = {}
         self.connect_signals()
 
@@ -138,16 +138,14 @@ class DroneGridApp(QMainWindow):
         self.scene.addLine(0, SIZE / 2, SIZE, SIZE / 2)  # From (0, SIZE/2) to (SIZE, SIZE/2)
 
     def connect_signals(self):
-        self.pushButton.clicked.connect(self.button_clicked)
+        self.launchButton.clicked.connect(self.launch_button_clicked)
 
 
-    def button_clicked(self):
-        x = self.spinBox_x.value()
-        y = self.spinBox_y.value()
-        self.move_drone("drone_1", x, y)
+    def launch_button_clicked(self):
+        pass
 
     def add_drone(self, drone_id):
-        triangle = create_triangle(self.icon_size)
+        triangle = create_triangle(self.drone_icon_size)
         drone_item = QtWidgets.QGraphicsPolygonItem(triangle)
         drone_item.setBrush(QBrush(Qt.red))
         drone_item.setPos(0, 0)
