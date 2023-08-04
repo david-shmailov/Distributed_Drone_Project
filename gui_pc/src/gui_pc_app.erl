@@ -21,7 +21,7 @@
 start(_StartType, _StartArgs) ->
     {ok, SupPid} = gui_pc_sup:start_link(),
     Port = 8000,
-    start_python_gui(Port),
+    % start_python_gui(Port),
     gui_server:start_link(Port),
     {ok, SupPid}.
 

@@ -1,4 +1,4 @@
--module(toggle_statem).
+-module(drone_statem).
 -behaviour(gen_statem).
 
 % API functions
@@ -11,6 +11,7 @@
 -define(TIMEOUT, 4000).
 -define(INDENTATION,{5,0}).
 -define(STEP_SIZE,1).
+-define(WORLD_SIZE,650).
 -record(drone, {id, location, theta, speed}).
 
 %%%===================================================================
@@ -20,13 +21,8 @@
 %%% state - state of the drone - atom - slave/leader
 %%% 
 
-%%Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow
-start_link(ID) ->
-    % List = [{0,0},'gs_server',0,0,'slave',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
-    List1 = [{0,0},'gs_server',slave,{0,0},ID],
-    gen_statem:start_link(?MODULE, List1, []).
-    % List2 = [{0,0},'gs_server',PID1,0,'leader',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
-    % gen_statem:start_link(?MODULE, List2, []).
+start_link(Drone) when is_record(Drone,drone) ->
+    gen_statem:start_link(?MODULE, [Drone], []).
 
 
 stop() ->
@@ -38,25 +34,26 @@ stop() ->
 %%% minimial init([Location,GS_PID,State]) 
 %%% full init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow])
 %%% @end
-init([Location,GS_PID,State,Waypoint,ID])->
-    io:format("Init~n"),
-    put(location, Location),
-    put(gs_pid, GS_PID),
-    put(state, State),
-    put(waypoint, Waypoint),
-    put(self_id, ID),
-    {ok, State, [], [{state_timeout, ?TIMEOUT, time_tick}]};
+%%% '
 
-init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow]) ->
+
+init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone]) ->
     io:format("Init~n"),
     put(location, Location),
-    put(gs_pid, GS_PID),
-    put(follower_pid, Follower_PID),
-    put(self_id, Self_id),
-    put(state, State),
-    put(waypoint, Waypoint),
-    put(points_to_follow, Points_to_follow),
-    {ok, State, [], [{state_timeout, ?TIMEOUT, time_tick}]}.
+    put(id, ID),
+    put(theta, degree_to_radian(Theta)),
+    put(speed, Speed),
+    put(waypoint, Location),
+    case ID of
+        0 ->
+            State = leader;
+        _ ->
+            State = slave
+    end,
+    gen_server:cast(gs_server, {drone_update, Drone}),
+    {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]}.
+
+
 
 terminate(_Reason, _State, _Data) ->
     ok.
@@ -68,11 +65,13 @@ code_change(_OldVsn, State, Data, _Extra) ->
     {ok, State, Data}.
 
 
+
 slave(state_timeout, _From, _Data) ->
     io:format("timeout in slave~n"),
-    step(get(state)),
+    step(slave),
     io:format("location is ~p~n", [get(location)]),
     {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+
 slave(vector_update, _From, {Location,Theta}) ->
     io:format("vector_update in slave~n"),
     waypoint_update(Location, Theta),
@@ -99,6 +98,7 @@ slave(_Event, _Data, _From) ->
     io:format("unknown event ~p in slave~n", [_Event]),
     io:format("the data is ~p~n, from:~p~n", [_Data, _From]),
     {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]}.
+
 
 
 leader(state_timeout, _Data, _From) ->
@@ -157,6 +157,7 @@ get_distance({X1,Y1},{X2,Y2}) ->
 rotation_matrix({X,Y},Theta)->
     {X_new,Y_new} = {X*math:cos(Theta)+Y*math:sin(Theta),Y*math:cos(Theta)-X*math:sin(Theta)},
     {X_new,Y_new}.
+
 waypoint_update({X,Y},Theta) ->
     {X_new,Y_new} = rotation_matrix(?INDENTATION, Theta),
     put(waypoint,{X-X_new,Y-Y_new}),
@@ -182,18 +183,18 @@ calculate_speed() ->
         Distance_to_waypoint > ?STEP_SIZE ->% speed must not be larger than 2!!! otherwise unstable system
             put(speed,2),
             2;
-        Distance_to_waypoint == 0 ->
+        Distance_to_waypoint == 0 -> % might be problematic we need a range
             put(speed,0),
             0;
         true ->
             put(speed,1),
-            update_waypoint(get(theta)),
+            increment_waypoint(get(theta)),
             1
-        end.
+    end.
 
 
 
-update_waypoint(undefined)->
+increment_waypoint(undefined)->
     {X,Y} = get(location),
     case get(waypoint) == {X,Y} of
         true ->
@@ -201,10 +202,10 @@ update_waypoint(undefined)->
         false ->
             put(theta,get_theta())
     end,
-    update_waypoint(get(theta));    
+    increment_waypoint(get(theta));    
      %update waypoint
 
-update_waypoint(Angle)->
+increment_waypoint(Angle)->
     {X,Y} = get(location),
     put(waypoint,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}). %update waypoint
 
@@ -218,9 +219,12 @@ step(slave)->
     {X,Y} = get(location),
     Speed = calculate_speed(),
     Angle = get(theta),
-    put(location,{X+Speed*?STEP_SIZE*math:cos(Angle),Y+Speed*?STEP_SIZE*math:sin(Angle)}).
+    put(location,{X+Speed*?STEP_SIZE*math:cos(Angle), Y+Speed*?STEP_SIZE*math:sin(Angle)}).
 
 
 radian_to_degree(Radian) ->
     DegreesFloat = Radian * (180/math:pi()),
     round(DegreesFloat).
+
+degree_to_radian(Degree) ->
+    Degree * (math:pi()/180).
