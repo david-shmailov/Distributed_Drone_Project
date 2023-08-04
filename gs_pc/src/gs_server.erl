@@ -31,6 +31,7 @@ start_link() ->
 
 init([]) ->
     GS_ETS = ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
+    gen_server:call({?GUI_SERVER, ?GUI_NODE}, {establish_comm, self()}),
     {ok, #state{ets=GS_ETS, data_stack=[]}}.
 
 

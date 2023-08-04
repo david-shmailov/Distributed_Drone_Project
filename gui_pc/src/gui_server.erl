@@ -75,6 +75,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 send_stack_to_gui([Drone| Rest], State) ->
+    io:format("Drone: ~p~n", [Drone]),
     Binary = drone_to_binary(Drone),
     send_to_gui(Binary, State),
     % todo stress check to see if we need to add a delay
@@ -85,11 +86,23 @@ send_stack_to_gui([], _State) ->
 
 
 
-drone_to_binary(Drone) ->
-    List = [Drone#drone.id] ++ tuple_to_list(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed],
-    String = string:join([integer_to_list(X) || X <- List], ","),
-    list_to_binary(String).
+% drone_to_binary(Drone) ->
+%     List = [Drone#drone.id] ++ tuple_to_list(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed],
+%     String = string:join([integer_to_list(X) || X <- List], ","),
+%     list_to_binary(String).
     
+drone_to_binary(Drone) ->
+    List = [Drone#drone.id] ++ tuple_to_list_float(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed],
+    String = string:join([number_to_string(X) || X <- List], ","),
+    list_to_binary(String).
+
+tuple_to_list_float({X, Y}) ->
+    [X, Y].
+
+number_to_string(Num) when is_integer(Num) ->
+    integer_to_list(Num);
+number_to_string(Num) when is_float(Num) ->
+    float_to_list(Num).
 
 
 send_to_gui(Data, #state{port = Port}) ->

@@ -48,8 +48,15 @@ class SocketListener(QThread):
                 if not data:
                     break
                 data = data.decode("utf-8")
-                drone_tuple = tuple(int(x) for x in data.split(","))
+                drone_tuple = tuple(self.to_number(x) for x in data.split(","))
                 self.droneUpdate.emit(drone_tuple)
+
+    @staticmethod
+    def to_number(x):
+        try:
+            return int(x)
+        except ValueError:
+            return float(x)
 
     def terminate(self):
         self.running = False
@@ -74,9 +81,9 @@ class DoubleStream(QtCore.QObject):
 class DroneGridApp(QMainWindow):
     def __init__(self, port):
         super().__init__()
-        GUI_folder = os.path.dirname(__file__)
+        self.GUI_folder = os.path.dirname(__file__)
         # Load the UI at runtime
-        uic.loadUi(f'{GUI_folder}/gui_frontend.ui', self)
+        uic.loadUi(f'{self.GUI_folder}/gui_frontend.ui', self)
         # Redirect stdout to the text edit
         sys.stdout = DoubleStream(self.console)
         self.port = port
@@ -116,7 +123,7 @@ class DroneGridApp(QMainWindow):
         self.scene = QGraphicsScene()
         self.scene.setSceneRect(0, 0, SIZE, SIZE)
         # Load the map pixmap
-        map_pixmap = QPixmap("map.jpg")
+        map_pixmap = QPixmap(f"{self.GUI_folder}/map.jpg")
 
         # Create a pixmap item with the loaded pixmap
         map_item = QGraphicsPixmapItem(map_pixmap)
@@ -148,22 +155,18 @@ class DroneGridApp(QMainWindow):
         triangle = create_triangle(self.drone_icon_size)
         drone_item = QtWidgets.QGraphicsPolygonItem(triangle)
         drone_item.setBrush(QBrush(Qt.red))
-        drone_item.setPos(0, 0)
+        drone_item.setPos(10000, 10000)
         self.scene.addItem(drone_item)
-        self.drones[drone_id] = {'obj':drone_item, 'movement':(0,0)}
+        self.drones[drone_id] = {'obj':drone_item, 'movement':(0,0), 'location':(0,0)}
 
-    def move_drone(self, drone_id, x, y, angle=None, speed=0):
+    def move_drone(self, drone_id, x, y, angle, speed):
         if drone_id in self.drones:
             drone_item = self.drones[drone_id]['obj']
-            # Calculate the angle of rotation based on movement direction
-            if angle is None:
-                dx = x - drone_item.x()
-                dy = y - drone_item.y()
-                angle = -math.atan2(dy, dx) * 180 / math.pi
 
             drone_item.setRotation(-angle+90)
-            drone_item.setPos(x, y)
+            drone_item.setPos(x, convert_to_scene_coordinates(y)) # move the (0,0) point to the center of screen
             self.drones[drone_id]['movement'] = (angle, speed)
+            self.drones[drone_id]['location'] = (x, y)
         else:
             self.add_drone(drone_id)
             self.move_drone(drone_id, x, y, angle, speed)
@@ -186,13 +189,13 @@ class DroneGridApp(QMainWindow):
         for drone_id, drone in self.drones.items():
             angle, speed = drone['movement']
             theta = angle * math.pi / 180
-            x = drone['obj'].x() + speed * math.cos(theta)
-            y = drone['obj'].y() + speed * math.sin(-theta)
+            x = drone['location'][0] + speed * math.cos(theta)
+            y = drone['location'][1] + speed * math.sin(-theta)
             self.move_drone(drone_id, x, y, angle, speed)
 
 
-
-
+def convert_to_scene_coordinates(y):
+    return -y + SIZE
 def create_triangle(size):
     """Create a triangle pointing upwards."""
     return QtGui.QPolygonF([
@@ -211,8 +214,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = DroneGridApp(args.port)
     window.show()
-
-
+    window.move_drone(1, 433.4, 433.4, 0, 1)
 
 
 
