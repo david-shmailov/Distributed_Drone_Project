@@ -165,6 +165,37 @@ waypoint_update({X,Y},Theta) ->
     {X_new,Y_new} = rotation_matrix(?INDENTATION, Theta),
     put(waypoint,{X-X_new,Y-Y_new}).
 
+
+
+%%%-------------------------------------------------------------------
+%%% leader time tick:
+%%% <time-tick> -> next_waypoint -> step -> update_waypoint if needed
+
+%%% slave time tick:
+%%% <time-tick> -> calculate_speed -> step
+%%% step = calculates theta, makes a step towards the waypoint in the dictionary, saves theta in dictionary
+%%% calculate speed = if distance is large, makes no change to waypoint, increases speed to 2
+%%% calculate speed = if distance is small, updates waypoint with previous theta and speed 1
+
+
+calculate_speed() ->
+    Distance_to_waypoint = get_distance(get(waypoint),get(location)),
+    case Distance_to_waypoint > (?STEP_SIZE) of
+        true ->
+            2; % speed must not be larger than 2!!! otherwise unstable system
+        false ->
+            update_waypoint(),
+            1
+    end.
+
+
+update_waypoint()->
+    Angle = get(theta), 
+    {X,Y} = get(location),
+    put(waypoint,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}). %update waypoint
+
+
+
 step(State)->
     case State of
         leader ->
@@ -177,10 +208,11 @@ step(State)->
             case Distance_to_waypoint >= (?STEP_SIZE/2) of
                 true ->
                     {X,Y} = get(waypoint),
+                    Speed = get(speed),
                     Angle = get_theta(),
                     put(location,{X,Y}),
                     io:format("the waypoint is~p~n",[{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}]),
-                    put(waypoint,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)});
+                    put(waypoint,{X+?STEP_SIZE*Speed*math:cos(Angle),Y+?STEP_SIZE*Speed*math:sin(Angle)});
                 false ->
                     put(location,get(waypoint))
                 end
