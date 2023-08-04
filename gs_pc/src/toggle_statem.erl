@@ -11,12 +11,16 @@
 -define(TIMEOUT, 4000).
 -define(INDENTATION,{0,5}).
 -define(STEP_SIZE,1).
+-record(drone, {id, location, theta, speed}).
 
 %%Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow
 start_link(ID) ->
     % List = [{0,0},'gs_server',0,0,'slave',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
-    List = [{0,0},'gs_server',slave,{0,0},ID],
-    gen_statem:start_link(?MODULE, List, []).
+    List1 = [{0,0},'gs_server',slave,{0,0},ID],
+    {ok,PID1}=gen_statem:start_link(?MODULE, List1, []),
+    List2 = [{0,0},'gs_server',PID1,0,'leader',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
+    gen_statem:start_link(?MODULE, List2, []).
+
 
 stop() ->
     gen_statem:stop(?MODULE).
@@ -69,6 +73,7 @@ slave(vector_update, _From, {Location,Theta}) ->
 slave(cast,{vector_update, {Location,Theta}}, _From) ->
     io:format("cast vector_update in slave~n"),
     waypoint_update(Location, Theta),
+    gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
     try gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) of
         __ ->
             io:format("Follower is alive~n")
@@ -94,6 +99,7 @@ leader(state_timeout, _Data, _From) ->
     step(get(state)),
     io:format("location is ~p~n", [get(location)]),
     {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+
 leader(cast,{update_value,{Key,Value}},_From) ->
     io:format("cast update_value in leader~n"),
     put(Key,Value),
@@ -154,6 +160,14 @@ step(State)->
                 true->
                     put(location,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}); %update location
                 false->
+                    gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
+                    try gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) of
+                        __ ->
+                            io:format("Follower is alive~n")
+                    catch
+                        _:_ ->
+                            io:format("Follower is not alive~n")
+                    end,
                     next_waypoint(),
                     step(State)
             end;
@@ -172,3 +186,7 @@ step(State)->
                     put(location,get(waypoint))
                 end
     end.
+
+radian_to_degree(Radian) ->
+    DegreesFloat = Radian * (180/math:pi()),
+    round(DegreesFloat).
