@@ -34,11 +34,6 @@ start_python_gui(Port) ->
     Cmd_Port = open_port({spawn, Command}, []),
     Cmd_Port ! {self(), close}.
 
-init_tables() ->
-    GS1_ETS = ets:new(gs1_ets, [named_table, public, {write_concurrency, true}]),
-    GS2_ETS = ets:new(gs2_ets, [named_table, public, {write_concurrency, true}]),
-    GS3_ETS = ets:new(gs3_ets, [named_table, public, {write_concurrency, true}]),
-    GS4_ETS = ets:new(gs4_ets, [named_table, public, {write_concurrency, true}]), % Todo figure out if you really need write_concurrency
-    {GS1_ETS, GS2_ETS, GS3_ETS, GS4_ETS}.
+
 
 %% internal functions

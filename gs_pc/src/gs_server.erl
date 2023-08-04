@@ -12,8 +12,13 @@
          terminate/2,
          code_change/3]).
 
--record(state, {}).
 -define(RETRY_DELAY, 1000).
+-define(GUI_NODE, 'gui@localhost').
+-define(GUI_SERVER, 'gui_server').
+-define(STACK_SIZE, 1). % we might not need aggregation at all 
+
+%% State record
+-record(state, {ets, data_stack}).
 
 % record for drone location and speed update:
 -record(drone, {id, location, theta, speed}).
@@ -25,14 +30,23 @@ start_link() ->
 
 
 init([]) ->
-    {ok, #state{}}.
+    GS_ETS = ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
+    {ok, #state{ets=GS_ETS, data_stack=[]}}.
 
 
 handle_call({drone_update, Drone}, _From, State) when is_record(Drone,drone) ->
     io:format("Drone update: ~p~n", [Drone]),
-    gen_server:cast({'gui_server', 'gui@localhost'} , {drone_update, Drone}),
-
-    {reply, ok, State};
+    ets:insert(State#state.ets, Drone),
+    New_State = send_to_gui(Drone, State),
+    case crossing_border(Drone) of
+        true ->
+            % todo send message to neighbor GS to create replacement drone
+            io:format("Drone ~p is crossing border~n", [Drone]),
+            {reply, crossing_border, New_State}; % will make the drone kill itself
+        false ->
+            {reply, ok, New_State} % return normal ok
+    end;
+    
 
 handle_call({establish_comm, _}, _From, State) ->
     Reply = io_lib:format("This is node ~p", [node()]),
@@ -59,3 +73,27 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions
+
+% todo
+crossing_border(#drone{location= {X,Y}}) ->
+    case X of
+        X when X < 0 ->
+            true;
+        X when X > 100 ->
+            true;
+        _ ->
+            false
+    end.
+
+
+send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
+    case length(Stack) of
+        ?STACK_SIZE ->
+            io:format("Stack is full~n"), % debug
+            gen_server:cast({?GUI_SERVER, ?GUI_NODE} , {drone_update, Stack}),
+            State#state{data_stack = []};
+        _ ->
+            io:format("Stack is not full~n"), % debug
+            State#state{data_stack = [Drone|Stack]}
+    end.
+    
