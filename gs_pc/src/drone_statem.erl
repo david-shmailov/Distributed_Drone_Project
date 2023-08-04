@@ -1,4 +1,4 @@
--module(drone_statem).
+-module(toggle_statem).
 -behaviour(gen_statem).
 
 % API functions
@@ -9,7 +9,7 @@
 -export([slave/3, leader/3]).
 
 -define(TIMEOUT, 4000).
--define(INDENTATION,{0,5}).
+-define(INDENTATION,{5,0}).
 -define(STEP_SIZE,1).
 -record(drone, {id, location, theta, speed}).
 
@@ -17,9 +17,9 @@
 start_link(ID) ->
     % List = [{0,0},'gs_server',0,0,'slave',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
     List1 = [{0,0},'gs_server',slave,{0,0},ID],
-    {ok,PID1}=gen_statem:start_link(?MODULE, List1, []),
-    List2 = [{0,0},'gs_server',PID1,0,'leader',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
-    gen_statem:start_link(?MODULE, List2, []).
+    gen_statem:start_link(?MODULE, List1, []).
+    % List2 = [{0,0},'gs_server',PID1,0,'leader',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
+    % gen_statem:start_link(?MODULE, List2, []).
 
 
 stop() ->
@@ -96,7 +96,22 @@ slave(_Event, _Data, _From) ->
 
 leader(state_timeout, _Data, _From) ->
     io:format("timeout in leader~n"),
-    step(get(state)),
+    Distance_to_waypoint = get_distance(get(waypoint),get(location)),
+    case Distance_to_waypoint>=?STEP_SIZE of
+        true->
+            step(get(state));
+        false ->
+            next_waypoint(),
+            step(get(state)),
+            gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
+            case get(follower_pid) of
+                undefined ->
+                    io:format("follower_pid is undefined~n");
+                _ ->
+                    gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) %%update neighbor only if it is defined
+            end
+    end,
+
     io:format("location is ~p~n", [get(location)]),
     {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
 
@@ -155,23 +170,7 @@ step(State)->
         leader ->
             Angle = get_theta(),
             {X,Y} = get(location),
-            Distance_to_waypoint = get_distance(get(waypoint),get(location)),
-            case Distance_to_waypoint>=?STEP_SIZE of
-                true->
-                    put(location,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}); %update location
-                false->
-                    gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
-                    try gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) of
-                        __ ->
-                            io:format("Follower is alive~n")
-                    catch
-                        _:_ ->
-                            io:format("Follower is not alive~n")
-                    end,
-                    next_waypoint(),
-                    step(State)
-            end;
-
+            put(location,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}); %update location
         slave ->
             Distance_to_waypoint = get_distance(get(waypoint),get(location)),
             %the slave will get to his waypoint in a single step and update the waypoint to be a single step size away from his new location
