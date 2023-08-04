@@ -13,6 +13,13 @@
 -define(STEP_SIZE,1).
 -record(drone, {id, location, theta, speed}).
 
+%%%===================================================================
+%%% Intialzation Arguments - id, location,state
+%%% id - id of the drone - intedger
+%%% location - location of the drone - {x,y} ,x,y are integers
+%%% state - state of the drone - atom - slave/leader
+%%% 
+
 %%Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow
 start_link(ID) ->
     % List = [{0,0},'gs_server',0,0,'slave',{1,1},[{1,1},{3,2},{5,1},{1,5},{10,1},{1,10},{20,2},{5,30},{50,50}]],
@@ -99,10 +106,10 @@ leader(state_timeout, _Data, _From) ->
     Distance_to_waypoint = get_distance(get(waypoint),get(location)),
     case Distance_to_waypoint>=?STEP_SIZE of
         true->
-            step(get(state));
+            step(leader);
         false ->
             next_waypoint(),
-            step(get(state)),
+            step(leader),
             gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
             case get(follower_pid) of
                 undefined ->
@@ -111,7 +118,6 @@ leader(state_timeout, _Data, _From) ->
                     gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) %%update neighbor only if it is defined
             end
     end,
-
     io:format("location is ~p~n", [get(location)]),
     {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
 
@@ -124,16 +130,6 @@ leader(_Event, _Data, _From) ->
     io:format("unknown event ~p in leader~n", [_Event]),
     {keep_state, _Data, [{state_timeout, ?TIMEOUT, time_tick}]}.
 
-% handle_common(cast, _Event, _From, _Data) ->
-%     io:format("cast event ~p~n", [_Event]),
-%     io:format("the data is ~p~n", [_Data]),
-%     {next_state,_Event, _Data};
-
-% handle_common(_Type, _Event, _From, _Data) ->
-%     io:format("unknown event ~p~n", [_Event]),
-%     {keep_state, _Data}.
-
-%gen_statem:cast('toggle_statem',{vector_update,{{30,40},2}})
 
 %%%===================================================================
 %%% Internal functions
@@ -163,7 +159,8 @@ rotation_matrix({X,Y},Theta)->
     {X_new,Y_new}.
 waypoint_update({X,Y},Theta) ->
     {X_new,Y_new} = rotation_matrix(?INDENTATION, Theta),
-    put(waypoint,{X-X_new,Y-Y_new}).
+    put(waypoint,{X-X_new,Y-Y_new}),
+    put(theta,get_theta()).
 
 
 
@@ -176,47 +173,53 @@ waypoint_update({X,Y},Theta) ->
 %%% step = calculates theta, makes a step towards the waypoint in the dictionary, saves theta in dictionary
 %%% calculate speed = if distance is large, makes no change to waypoint, increases speed to 2
 %%% calculate speed = if distance is small, updates waypoint with previous theta and speed 1
+%%% Neriya's addition - if distance is 0, speed is 0 in order to avoid bugs
 
 
 calculate_speed() ->
     Distance_to_waypoint = get_distance(get(waypoint),get(location)),
-    case Distance_to_waypoint > (?STEP_SIZE) of
+    if
+        Distance_to_waypoint > ?STEP_SIZE ->% speed must not be larger than 2!!! otherwise unstable system
+            put(speed,2),
+            2;
+        Distance_to_waypoint == 0 ->
+            put(speed,0),
+            0;
         true ->
-            2; % speed must not be larger than 2!!! otherwise unstable system
-        false ->
-            update_waypoint(),
+            put(speed,1),
+            update_waypoint(get(theta)),
             1
-    end.
+        end.
 
 
-update_waypoint()->
-    Angle = get(theta), 
+
+update_waypoint(undefined)->
+    {X,Y} = get(location),
+    case get(waypoint) == {X,Y} of
+        true ->
+            put(theta,0);%assign random theta
+        false ->
+            put(theta,get_theta())
+    end,
+    update_waypoint(get(theta));    
+     %update waypoint
+
+update_waypoint(Angle)->
     {X,Y} = get(location),
     put(waypoint,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}). %update waypoint
 
 
+step(leader)->
+    Angle = get_theta(),
+    {X,Y} = get(location),
+    put(location,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}); %update location
 
-step(State)->
-    case State of
-        leader ->
-            Angle = get_theta(),
-            {X,Y} = get(location),
-            put(location,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}); %update location
-        slave ->
-            Distance_to_waypoint = get_distance(get(waypoint),get(location)),
-            %the slave will get to his waypoint in a single step and update the waypoint to be a single step size away from his new location
-            case Distance_to_waypoint >= (?STEP_SIZE/2) of
-                true ->
-                    {X,Y} = get(waypoint),
-                    Speed = get(speed),
-                    Angle = get_theta(),
-                    put(location,{X,Y}),
-                    io:format("the waypoint is~p~n",[{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}]),
-                    put(waypoint,{X+?STEP_SIZE*Speed*math:cos(Angle),Y+?STEP_SIZE*Speed*math:sin(Angle)});
-                false ->
-                    put(location,get(waypoint))
-                end
-    end.
+step(slave)->
+    {X,Y} = get(location),
+    Speed = calculate_speed(),
+    Angle = get(theta),
+    put(location,{X+Speed*?STEP_SIZE*math:cos(Angle),Y+Speed*?STEP_SIZE*math:sin(Angle)}).
+
 
 radian_to_degree(Radian) ->
     DegreesFloat = Radian * (180/math:pi()),
