@@ -48,7 +48,8 @@ init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone]) 
         0 ->
             State = leader;
         _ ->
-            State = slave
+            State = slave,
+            indentation_update()
     end,
     gen_server:cast(gs_server, {drone_update, Drone}),
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]}.
@@ -129,7 +130,7 @@ leader(state_timeout,_From , _Data) ->
     io:format("location is ~p~n", [get(location)]),
     {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
 
-leader(cast,{update_value,{Key,Value}},_From) -> 
+leader(cast,{update_value,{Key,Value}},_From) ->
     io:format("cast update_value in leader Key: ~p, Value: ~p ~n", [Key,Value]),
     put(Key,Value),
     {keep_state,[]};
@@ -169,9 +170,12 @@ rotation_matrix({X,Y},Theta)->
     {X_new,Y_new}.
 
 waypoint_update({X,Y},Theta) ->
-    {X_new,Y_new} = rotation_matrix(?INDENTATION, Theta),
+    {X_new,Y_new} = rotation_matrix(get(indentation), Theta),
     put(waypoint,{X-X_new,Y-Y_new}),
     put(theta,get_theta()).
+indentation_update() ->
+    {INDENTATION_X, INDENTATION_Y} = ?INDENTATION,
+    put(indentation,{INDENTATION_X*math:pow(-1,get(id)),INDENTATION_Y}).
 
 
 
