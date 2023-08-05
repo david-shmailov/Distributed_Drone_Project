@@ -15,7 +15,7 @@
 
 
 %% State record
--record(state, {ets,num_of_drones, data_stack}).
+-record(state, {gs_id, num_of_drones, data_stack, borders, neighbors}).
 
 % record for drone location and speed update:
 
@@ -26,24 +26,18 @@ start_link() ->
 
 
 init([]) ->
-    GS_ETS = ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
+    ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
+    {ok,GS_ID} = extract_number(node()),
+    {Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
     gen_server:call({?GUI_SERVER, ?GUI_NODE}, {establish_comm, self()}),
-    {ok, #state{ets=GS_ETS, data_stack=[]}}.
+    {ok, #state{gs_id = GS_ID, data_stack=[], borders = Borders, neighbors= Neighbors}}.
 
 
 handle_call({drone_update, Drone}, _From, State) when is_record(Drone,drone) ->
     io:format("Drone update: ~p~n", [Drone]),
-    ets:insert(State#state.ets, Drone),
+    ets:insert(gs_ets, Drone),
     New_State = send_to_gui(Drone, State),
-    case crossing_border(Drone) of
-        true ->
-            % todo send message to neighbor GS to create replacement drone
-            io:format("Drone ~p is crossing border~n", [Drone]),
-            % {reply, crossing_border, New_State}; % will make the drone kill itself
-            {reply, ok, New_State};
-        false ->
-            {reply, ok, New_State} % return normal ok
-    end;
+    {reply, ok, New_State};
     
 
 handle_call({establish_comm, _}, _From, State) ->
@@ -52,9 +46,9 @@ handle_call({establish_comm, _}, _From, State) ->
     {reply, Reply , State};
 
 
-handle_call({launch_drones, Num}, _From, State) ->
+handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
-    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2,?WORLD_SIZE/2}})} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start(#drone{id=Id,location={?WORLD_SIZE/2,?WORLD_SIZE/2}}, Borders)} || Id <- lists:seq(0,Num-1)],
     io:format("launched ~p drones~n", [Num]),
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
@@ -74,6 +68,31 @@ handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
     {reply, ok, State};
 
 
+
+
+handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) ->
+    {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
+    ets:insert(gs_ets, {ID, PID}),
+    {reply, ok, State};
+
+
+handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
+    Transfer_to_GS_ID = check_borders(Location, State),
+    case Transfer_to_GS_ID of
+        no_crossing ->
+            {reply, ok, State};
+        Next_GS ->
+            io:format("Drone ~p is crossing border~n", [ID]),
+            case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
+                ok -> 
+                    ets:delete(gs_ets, ID),
+                    {reply, terminate, State}; % terminate the old drone
+                _ -> 
+                    io:format("Error creating drone on neighbor GS ~p~n", [Next_GS]),
+                    {reply, ok, State} % drone creation failed, dont terminate the old drone
+            end
+    end;
+
 handle_call(_Request, _From, State) ->
     io:format("Unknown message: ~p~n", [_Request]),
     {reply, ignored, State}.
@@ -81,9 +100,11 @@ handle_call(_Request, _From, State) ->
 
 
 
+
+
 handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
     io:format("Drone update: ~p~n", [Drone]),
-    ets:insert(State#state.ets, Drone),
+    ets:insert(gs_ets, Drone),
     New_State = send_to_gui(Drone, State),
     {noreply, New_State};
 
@@ -95,7 +116,7 @@ handle_cast(_Msg, State) ->
 handle_info(_Info, State) ->
     {noreply, State}.
 
-terminate(_Reason, State) ->
+terminate(_Reason, _State) ->
     ok.
 
 
@@ -104,6 +125,18 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions
+
+
+extract_number(NodeName) ->
+    case re:run(atom_to_list(NodeName), "gs([0-9]+)@.*", [{capture, all_but_first, list}]) of
+        {match, [Number]} -> 
+            {ok, list_to_integer(Number)};
+        _ -> 
+            {error, "Invalid NodeName format"}
+    end.
+
+
+
 
 
 calculate_neighbor(0,Num_of_drones) ->
@@ -128,6 +161,15 @@ calculate_neighbor(ID,Num_of_drones) ->
     end.
 
 
+check_borders({X,Y}, #state{borders = Borders, neighbors = Neighbors}) ->
+    #borders{left=Left,right=Right,top = Top,bottom = Bottom}=Borders,
+    if 
+        X=<Left -> Neighbors#borders.left;
+        X>=Right -> Neighbors#borders.right;
+        Y=<Bottom -> Neighbors#borders.bottom;
+        Y>=Top -> Neighbors#borders.top;
+        true -> no_crossing
+    end.
 
 
 
@@ -151,19 +193,23 @@ get_followers_PIDs([], Followers_PIDs) ->
 
 
 
+calculate_borders_and_neighbors(GS_ID) ->
+    case GS_ID of
+        1 -> % TODO change hard coded node names into a mechanism to get the node names
+            Borders =   #borders{left = -?INFINITY, right = ?WORLD_SIZE/2, top = ?INFINITY, bottom = ?WORLD_SIZE/2},
+            Neighbors = #borders{left = undefined, right = 'gs2@localhost', top = undefined, bottom = 'gs4@localhost'};
+        2 ->
+            Borders =   #borders{left = ?WORLD_SIZE/2, right = ?INFINITY, top = ?INFINITY, bottom = ?WORLD_SIZE/2},
+            Neighbors = #borders{left = 'gs1@localhost', right = undefined, top = undefined, bottom = 'gs3@localhost'};
+        3 ->
+            Borders =   #borders{left = ?WORLD_SIZE/2, right = ?INFINITY, top = ?WORLD_SIZE/2, bottom = -?INFINITY},
+            Neighbors = #borders{left = 'gs4@localhost', right = undefined, top = 'gs2@localhost', bottom = undefined};
+        4 ->
+            Borders =   #borders{left = -?INFINITY, right = ?WORLD_SIZE/2, top = ?WORLD_SIZE/2, bottom = -?INFINITY},
+            Neighbors = #borders{left = undefined, right = 'gs3@localhost', top = 'gs1@localhost', bottom = undefined}
+    end,
+    {Borders, Neighbors}.
 
-
-
-% todo
-crossing_border(#drone{location= {X,Y}}) ->
-    case X of
-        X when X < 0 ->
-            true;
-        X when X > 100 ->
-            true;
-        _ ->
-            false
-    end.
 
 
 send_to_gui(Drone, #state{data_stack = Stack} = State ) ->

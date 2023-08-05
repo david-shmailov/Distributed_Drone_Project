@@ -4,12 +4,11 @@
 -behaviour(gen_statem).
 
 % API functions
--export([start_link/1, stop/0]).
+-export([start/2, start_link/2, stop/0, rebirth/2]).
 
 % gen_statem callbacks
 -export([init/1, terminate/3, callback_mode/0, code_change/4]).
 -export([slave/3, leader/3]).
--record(borders, {left=0, right=?WORLD_SIZE/2, top=?WORLD_SIZE/2, bottom=0}).
 
 
 
@@ -24,9 +23,15 @@
 %%%       : add the following event: target found
 %%% 
 
-start_link(Drone) when is_record(Drone,drone) ->
-    gen_statem:start_link(?MODULE, [Drone], []).
+start_link(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,borders) ->
+    gen_statem:start_link(?MODULE, [Drone, Borders], []).
 
+start(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,borders) ->
+    gen_statem:start(?MODULE, [Drone, Borders], []).
+
+rebirth(State, Borders) when is_record(Borders,borders) ->
+    gen_statem:start(?MODULE, [rebirth, State, Borders], []).
+    % gen_statem:start_link(?MODULE, [rebirth, State, Borders], []).
 
 stop() ->
     gen_statem:stop(?MODULE).
@@ -40,14 +45,28 @@ stop() ->
 %%% '
 
 
-init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone]) ->
+init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on rebirth
+    lists:foreach(fun({Key, Value}) -> put(Key, Value) end, Internal_state),
+    put(borders, Borders),
+    ID = get(id),
+    io:format("Drone ~p is reborn in node ~p~n", [ID, node()]),
+    case ID of
+        0 ->
+            State = leader;
+        _ ->
+            State = slave
+    end,
+    {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]};
+
+
+init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, Borders]) ->
     io:format("Init~n"),
     put(location, Location),
     put(id, ID),
     put(theta, degree_to_radian(Theta)),
     put(speed, Speed),
     put(waypoint, {Location, Theta}),
-    put(borders, #borders{}),
+    put(borders, Borders),
     case ID of
         0 ->
             State = leader;
@@ -57,6 +76,7 @@ init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone]) 
     end,
     gen_server:cast(gs_server, {drone_update, Drone}),
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]}.
+
 
 
 
@@ -78,6 +98,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 slave(state_timeout, _From, _Data) ->
     step(slave),
     io:format("~p location is ~p~n", [get(id), get(location)]),
+    check_borders(),
     {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
 
 
@@ -131,7 +152,12 @@ leader(state_timeout,_From , _Data) ->
                     update_neighbors(Followers, get(location), get(theta))
             end
     end,
-    {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+    case check_borders() of
+        ok ->
+            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+        terminate ->
+            {stop, normal, _Data}
+    end;
 
 leader(cast,{update_value,{Key,Value}},_From) ->
     io:format("cast update_value in leader Key: ~p, Value: ~p ~n", [Key,Value]),
@@ -235,8 +261,8 @@ step(leader)->
     Theta = get_theta_to_wp(),
     put(speed,1),
     {X,Y} = get(location),
-    put(location,{X+?STEP_SIZE*math:cos(Theta),Y+?STEP_SIZE*math:sin(Theta)}), %update location
-    check_borders();
+    put(location,{X+?STEP_SIZE*math:cos(Theta),Y+?STEP_SIZE*math:sin(Theta)}); %update location
+
 
 step(slave)->
     Old_speed = get(speed),
@@ -247,7 +273,6 @@ step(slave)->
     Theta_deg = radian_to_degree(Theta),
     put(theta,Theta),
     put(location,{X+Speed*?STEP_SIZE*math:cos(Theta), Y+Speed*?STEP_SIZE*math:sin(Theta)}),
-    check_borders(),
     if
         Old_theta_deg /= Theta_deg orelse Old_speed/=Speed ->
             update_gs();
@@ -281,10 +306,25 @@ update_gs() ->
 check_borders() ->
     Border_record = get(borders),
     #borders{left=Left,right=Right,top = Top,bottom = Bottom}=Border_record,
-    {X,Y} = get(location),
-    case X<Left orelse X>Right orelse Y<Bottom orelse Y>Top of
+    {X,Y} = Location = get(location),
+    case X=<Left orelse X>=Right orelse Y=<Bottom orelse Y>=Top of
         false ->
             ok;
         true ->
-            update_gs()
+            cross_border(Location)
     end.
+
+
+
+cross_border(Location) ->
+    % get all key value pairs from process dictionary in a list
+    case process_info(self(), dictionary) of
+        {dictionary, Dict} -> Dict;
+        _ -> Dict = []
+    end,
+    % gen_server:call and grab the reply
+    % returns 'ok' or 'terminate' atom
+    gen_server:call(gs_server, {crossing_border, get(id), Location,Dict}).
+
+
+

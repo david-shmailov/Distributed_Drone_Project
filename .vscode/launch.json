@@ -14,13 +14,41 @@
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       },
       {
-        "name": "Launch GS PC",
+        "name": "Launch GS1 PC",
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gs_pc/",
         "arguments": "-sname gs1@localhost -setcookie cookie -eval \"application:start(gs_pc)\"",
         "preLaunchTask": "rebar3 compile gs_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
+      },
+      {
+        "name": "Launch GS2 PC",
+        "type": "erlang",
+        "request": "launch",
+        "cwd": "${workspaceRoot}/gs_pc/",
+        "arguments": "-sname gs2@localhost -setcookie cookie -eval \"application:start(gs_pc)\"",
+        "preLaunchTask": "rebar3 compile gs_pc",
+        // "runinterminal": ["cd gui_pc && rebar3", "shell"]
+      },
+      {
+        "name": "Launch GS3 PC",
+        "type": "erlang",
+        "request": "launch",
+        "cwd": "${workspaceRoot}/gs_pc/",
+        "arguments": "-sname gs3@localhost -setcookie cookie -eval \"application:start(gs_pc)\"",
+        "preLaunchTask": "rebar3 compile gs_pc",
+        // "runinterminal": ["cd gui_pc && rebar3", "shell"]
+      },
+      {
+        "name": "Launch GS4 PC",
+        "type": "erlang",
+        "request": "launch",
+        "cwd": "${workspaceRoot}/gs_pc/",
+        "arguments": "-sname gs4@localhost -setcookie cookie -eval \"application:start(gs_pc)\"",
+        "preLaunchTask": "rebar3 compile gs_pc",
+        // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       }
+
     ]
 }
