@@ -9,12 +9,13 @@
 
 -export([start/2, stop/1]).
 -record(drone, {id, location, theta, speed}).
-
+-define(WORLD_SIZE,650).
 
 start(_StartType, _StartArgs) ->
     {ok, SupPid} = gs_pc_sup:start_link(),
     gs_server:start_link(),
     gen_server:call(gs_server, {launch_drones, 2}),
+    gen_server:call(gs_server, {set_waypoints, [ {?WORLD_SIZE/2,450}, {100,400}, {200,400}]}),
     % gen_server:call(gs_server, {drone_update, #drone{id = 1, location = {50,400}, theta = radian_to_degree(0), speed = 1}}),
     % timer:sleep(1000),
     % gen_server:call(gs_server, {drone_update, #drone{id = 2, location = {100,400}, theta = radian_to_degree(math:pi()/4), speed = 1}}),

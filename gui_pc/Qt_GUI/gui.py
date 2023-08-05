@@ -190,7 +190,7 @@ class DroneGridApp(QMainWindow):
             angle, speed = drone['movement']
             theta = angle * math.pi / 180
             x = drone['location'][0] + speed * math.cos(theta)
-            y = drone['location'][1] + speed * math.sin(-theta)
+            y = drone['location'][1] + speed * math.sin(theta)
             self.move_drone(drone_id, x, y, angle, speed)
 
 
@@ -214,7 +214,7 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = DroneGridApp(args.port)
     window.show()
-    window.move_drone(1, 433.4, 433.4, 0, 1)
+    # window.move_drone(1, SIZE/2, SIZE/2, 0, 1)
 
 
 

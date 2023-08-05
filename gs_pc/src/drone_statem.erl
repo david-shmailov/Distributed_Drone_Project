@@ -8,7 +8,7 @@
 -export([init/1, terminate/3, callback_mode/0, code_change/4]).
 -export([slave/3, leader/3]).
 
--define(TIMEOUT, 4000).
+-define(TIMEOUT, 100).
 -define(INDENTATION,{5,0}).
 -define(STEP_SIZE,1).
 -define(WORLD_SIZE,650).
@@ -32,7 +32,7 @@ stop() ->
 %%%-------------------------------------------------------------------
 %%% @doc Initialize the state machine.
 %%% minimial init([Location,GS_PID,State]) 
-%%% full init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Points_to_follow])
+%%% full init([Location,GS_PID,Follower_PID,Self_id,State,Waypoint,Waypoints_stack])
 %%% @end
 %%% '
 
@@ -64,7 +64,11 @@ callback_mode() ->
 code_change(_OldVsn, State, Data, _Extra) ->
     {ok, State, Data}.
 
+%%%===================================================================
+%%% State functions
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% slave state
 
 slave(state_timeout, _From, _Data) ->
     io:format("timeout in slave~n"),
@@ -76,7 +80,7 @@ slave(vector_update, _From, {Location,Theta}) ->
     io:format("vector_update in slave~n"),
     waypoint_update(Location, Theta),
     {keep_state};
-slave(cast,{vector_update, {Location,Theta}}, _From) ->
+slave(cast,{vector_update, {Location,Theta}}, _From) -> % test
     io:format("cast vector_update in slave~n"),
     waypoint_update(Location, Theta),
     gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
@@ -89,24 +93,25 @@ slave(cast,{vector_update, {Location,Theta}}, _From) ->
     end,
     {keep_state,[]};
 
-slave(cast,{update_value,{Key,Value}},_From) ->
+slave(cast,{update_value,{Key,Value}},_From) -> % test
     io:format("cast update_value in slave~n"),
     put(Key,Value),
     {keep_state,[]};
 
-slave(_Event, _Data, _From) ->
+slave(_Event, _Data, _From) -> % test
     io:format("unknown event ~p in slave~n", [_Event]),
     io:format("the data is ~p~n, from:~p~n", [_Data, _From]),
     {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]}.
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%% leader state
 
-
-leader(state_timeout, _Data, _From) ->
+leader(state_timeout,_From , _Data) ->
     io:format("timeout in leader~n"),
     Distance_to_waypoint = get_distance(get(waypoint),get(location)),
-    Points_to_follow = get(points_to_follow),
+    Waypoints_stack = get(waypoints_stack),
     if
-        (Points_to_follow== undefined) ->
+        (Waypoints_stack== undefined) ->
             ok;
         Distance_to_waypoint>=?STEP_SIZE ->
             step(leader);
@@ -124,12 +129,12 @@ leader(state_timeout, _Data, _From) ->
     io:format("location is ~p~n", [get(location)]),
     {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
 
-leader(cast,{update_value,{Key,Value}},_From) ->
-    io:format("cast update_value in leader~n"),
+leader(cast,{update_value,{Key,Value}},_From) -> 
+    io:format("cast update_value in leader Key: ~p, Value: ~p ~n", [Key,Value]),
     put(Key,Value),
     {keep_state,[]};
 
-leader(_Event, _Data, _From) ->
+leader(_Event, _From, _Data) ->
     io:format("unknown event ~p in leader~n", [_Event]),
     {keep_state, _Data, [{state_timeout, ?TIMEOUT, time_tick}]}.
 
@@ -142,18 +147,18 @@ get_theta() ->
     {X_new,Y_new} = get(location),
     X = X_old - X_new,
     Y = Y_old - Y_new,
-    Angle = math:atan(Y / X),
-    case X >= 0 of
-        true -> Angle;
-        false -> Angle + math:pi()
-    end.
+    math:atan2(Y , X).
+    % case X >= 0 of
+    %     true -> Angle;
+    %     false -> Angle + math:pi()
+    % end.
 next_waypoint() ->%%that function is only for leader state
-    case get(points_to_follow) of
+    case get(waypoints_stack) of
         undefined ->
             ok;
         [] -> get(waypoint);
         [H|T] ->
-            put(points_to_follow, T),
+            put(waypoints_stack, T ++ [H]),
             put(waypoint, H)
     end.
 get_distance({X1,Y1},{X2,Y2}) ->

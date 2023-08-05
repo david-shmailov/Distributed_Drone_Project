@@ -65,6 +65,13 @@ handle_call({launch_drones, Num}, _From, State) ->
     {reply, ok, State};
 
 
+handle_call({set_waypoints, Waypoints}, _From, State) ->
+    io:format("Setting waypoints: ~p~n", [Waypoints]),
+    send_to_drone(0, {waypoints_stack, Waypoints}),
+    {reply, ok, State};
+
+
+
 
 handle_call(_Request, _From, State) ->
     io:format("Unknown message: ~p~n", [_Request]),
@@ -96,6 +103,21 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions
+
+
+
+send_to_drone(ID, {Key,Value}) ->
+    case ets:lookup(gs_ets, ID) of
+        [{ID, PID}] ->
+            gen_statem:cast(PID, {update_value, {Key,Value}});
+        [] ->
+            io:format("Drone ~p not found~n", [ID])
+    end.
+
+
+
+
+
 
 % todo
 crossing_border(#drone{location= {X,Y}}) ->
