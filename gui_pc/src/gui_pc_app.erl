@@ -4,7 +4,7 @@
 %%%-------------------------------------------------------------------
 
 -module(gui_pc_app).
-
+-include("../project_def.hrl").
 -behaviour(application).
 -import(gui_server,[start_link/2]).
 -import(gui_server,[  init/1,

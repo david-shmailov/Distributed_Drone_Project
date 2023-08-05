@@ -89,12 +89,16 @@ send_stack_to_gui([], _State) ->
 %     list_to_binary(String).
     
 drone_to_binary(Drone) ->
-    List = [Drone#drone.id] ++ tuple_to_list_float(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed],
+    Waypoint_flat = flatten_waypoint(Drone#drone.next_waypoint),
+    List = [Drone#drone.id] ++ tuple_to_list_float(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed] ++ Waypoint_flat,
     String = string:join([number_to_string(X) || X <- List], ","),
     list_to_binary(String).
 
 tuple_to_list_float({X, Y}) ->
     [X, Y].
+
+flatten_waypoint({{Wp_X, Wp_Y}, Wp_deg}) ->
+    [Wp_X, Wp_Y, Wp_deg].
 
 number_to_string(Num) when is_integer(Num) ->
     integer_to_list(Num);

@@ -15,7 +15,7 @@
 start(_StartType, _StartArgs) ->
     {ok, SupPid} = gs_pc_sup:start_link(),
     gs_server:start_link(),
-    gen_server:call(gs_server, {launch_drones, 3}),
+    gen_server:call(gs_server, {launch_drones, 10}),
     gen_server:call(gs_server, set_followers),
     gen_server:call(gs_server, {set_waypoints, [ {{?WORLD_SIZE/4,?WORLD_SIZE/4}, 0}, {{?WORLD_SIZE/4,3*?WORLD_SIZE/4}, 0}, {{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4},0},{{3*?WORLD_SIZE/4,?WORLD_SIZE/4},0}]}),
     % gen_server:call(gs_server, {drone_update, #drone{id = 1, location = {50,400}, theta = radian_to_degree(0), speed = 1}}),

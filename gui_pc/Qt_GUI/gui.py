@@ -101,7 +101,7 @@ class DroneGridApp(QMainWindow):
         # start timing generator
         self.TG_Thread = TimingGenerator()
         self.TG_Thread.time_tick_signal.connect(self.move_drones_slot)
-        # self.TG_Thread.start()
+        self.TG_Thread.start()
 
 
 
@@ -156,8 +156,13 @@ class DroneGridApp(QMainWindow):
         drone_item = QtWidgets.QGraphicsPolygonItem(triangle)
         drone_item.setBrush(QBrush(Qt.red))
         drone_item.setPos(10000, 10000)
+        star = create_star(self.drone_icon_size)
+        wp_item = QtWidgets.QGraphicsPolygonItem(star)
+        wp_item.setBrush(QBrush(Qt.blue))
+        wp_item.setPos(10000, 10000)
+        self.scene.addItem(wp_item)
         self.scene.addItem(drone_item)
-        self.drones[drone_id] = {'obj':drone_item, 'movement':(0,0), 'location':(0,0)}
+        self.drones[drone_id] = {'obj':drone_item, 'movement':(0,0), 'location':(0,0), 'wp':wp_item}
 
     def move_drone(self, drone_id, x, y, angle, speed):
         if drone_id in self.drones:
@@ -171,6 +176,13 @@ class DroneGridApp(QMainWindow):
             self.add_drone(drone_id)
             self.move_drone(drone_id, x, y, angle, speed)
 
+    def move_wp(self, drone_id, wp_x, wp_y):
+        if drone_id in self.drones:
+            wp_item = self.drones[drone_id]['wp']
+            wp_item.setPos(wp_x, convert_to_scene_coordinates(wp_y)) # move the (0,0) point to the center of screen
+
+
+
 
 
     # slots
@@ -181,8 +193,9 @@ class DroneGridApp(QMainWindow):
 
     @QtCore.pyqtSlot(tuple)
     def update_drone(self,drone_tuple):
-        drone_id, x, y, theta, speed = drone_tuple
+        drone_id, x, y, theta, speed, wp_x, wp_y, wp_theta = drone_tuple
         self.move_drone(drone_id, x, y, theta,speed)
+        self.move_wp(drone_id, wp_x, wp_y)
 
     @QtCore.pyqtSlot()
     def move_drones_slot(self):
@@ -196,12 +209,24 @@ class DroneGridApp(QMainWindow):
 
 def convert_to_scene_coordinates(y):
     return -y + SIZE
+
+
 def create_triangle(size):
     """Create a triangle pointing upwards."""
     return QtGui.QPolygonF([
         QtCore.QPointF(0, -size) ,       # Top center
         QtCore.QPointF(size/2, size/2),   # Bottom right
         QtCore.QPointF(-size/2, size/2),  # Bottom left
+    ])
+
+def create_star(size):
+    """Create a four-point star."""
+    return QtGui.QPolygonF([
+        QtCore.QPointF(0, -size),       # Top
+        QtCore.QPointF(0, size),        # Bottom
+        QtCore.QPointF(size, 0),        # Right
+        QtCore.QPointF(-size, 0),       # Left
+        QtCore.QPointF(0, -size),       # Return to Top
     ])
 
 
