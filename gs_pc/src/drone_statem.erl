@@ -104,10 +104,13 @@ slave(_Event, _Data, _From) ->
 leader(state_timeout, _Data, _From) ->
     io:format("timeout in leader~n"),
     Distance_to_waypoint = get_distance(get(waypoint),get(location)),
-    case Distance_to_waypoint>=?STEP_SIZE of
-        true->
+    Points_to_follow = get(points_to_follow),
+    if
+        (Points_to_follow== undefined) ->
+            ok;
+        Distance_to_waypoint>=?STEP_SIZE ->
             step(leader);
-        false ->
+        true ->
             next_waypoint(),
             step(leader),
             gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
@@ -146,6 +149,8 @@ get_theta() ->
     end.
 next_waypoint() ->%%that function is only for leader state
     case get(points_to_follow) of
+        undefined ->
+            ok;
         [] -> get(waypoint);
         [H|T] ->
             put(points_to_follow, T),
