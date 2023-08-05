@@ -48,7 +48,7 @@ handle_call({establish_comm, _}, _From, State) ->
 
 handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
-    Drones_ID = [{Id, drone_statem:start(#drone{id=Id,location={?WORLD_SIZE/2,?WORLD_SIZE/2}}, Borders)} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2,?WORLD_SIZE/2}}, Borders)} || Id <- lists:seq(0,Num-1)],
     io:format("launched ~p drones~n", [Num]),
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
