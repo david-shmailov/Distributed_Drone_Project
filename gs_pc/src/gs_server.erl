@@ -19,7 +19,7 @@
 -define(WORLD_SIZE,650).
 
 %% State record
--record(state, {ets, data_stack}).
+-record(state, {ets,num_of_drones, data_stack}).
 
 % record for drone location and speed update:
 -record(drone, {id, location, theta=0, speed=0}).
@@ -44,7 +44,8 @@ handle_call({drone_update, Drone}, _From, State) when is_record(Drone,drone) ->
         true ->
             % todo send message to neighbor GS to create replacement drone
             io:format("Drone ~p is crossing border~n", [Drone]),
-            {reply, crossing_border, New_State}; % will make the drone kill itself
+            % {reply, crossing_border, New_State}; % will make the drone kill itself
+            {reply, ok, New_State};
         false ->
             {reply, ok, New_State} % return normal ok
     end;
@@ -62,7 +63,7 @@ handle_call({launch_drones, Num}, _From, State) ->
     io:format("launched ~p drones~n", [Num]),
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
-    {reply, ok, State};
+    {reply, ok, State#state{num_of_drones = Num}};
 
 
 handle_call({set_waypoints, Waypoints}, _From, State) ->
@@ -70,7 +71,12 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
     send_to_drone(0, {waypoints_stack, Waypoints}),
     {reply, ok, State};
 
-
+handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
+    io:format("Setting followers~n"),
+    Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
+    Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
+    [send_to_drone(ID, {followers_pid, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)],
+    {reply, ok, State};
 
 
 handle_call(_Request, _From, State) ->
@@ -105,6 +111,32 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 
 
+calculate_neighbor(0,Num_of_drones) ->
+    % ID = 0 is leader
+    % Leader has 2 neighbors 
+    case Num_of_drones of % num of drones including leader
+        1 ->
+            [];
+        2 ->
+            [1];
+        _ ->
+            [1,2]
+    end;
+
+calculate_neighbor(ID,Num_of_drones) ->
+    % non leader drones follow the drone with ID +2 
+    if
+        Num_of_drones - ID < 3 ->
+            []; % no more followers
+        true ->
+            [ID+2]
+    end.
+
+
+
+
+
+
 
 send_to_drone(ID, {Key,Value}) ->
     case ets:lookup(gs_ets, ID) of
@@ -113,6 +145,14 @@ send_to_drone(ID, {Key,Value}) ->
         [] ->
             io:format("Drone ~p not found~n", [ID])
     end.
+
+
+get_followers_PIDs(Followers_IDs) -> get_followers_PIDs(Followers_IDs, []).
+get_followers_PIDs([ID|T], Followers_PIDs) ->
+    [{ID, PID}] = ets:lookup(gs_ets, ID),
+    get_followers_PIDs(T, Followers_PIDs ++ [PID]);
+get_followers_PIDs([], Followers_PIDs) ->
+    Followers_PIDs.
 
 
 

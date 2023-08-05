@@ -13,7 +13,7 @@
          terminate/2,
          code_change/3]).
 
--record(state, {port = undefined}).
+-record(state, {out_port, in_port}).
 -define(RETRY_DELAY, 1000).
 -record(drone, {id, location, theta, speed}).
 
@@ -24,7 +24,7 @@ start_link(Port) ->
 
 
 init([Port]) ->
-    {ok, #state{port = Port }}.
+    {ok, #state{out_port = Port}}.
 
 
 
@@ -105,8 +105,8 @@ number_to_string(Num) when is_float(Num) ->
     float_to_list(Num).
 
 
-send_to_gui(Data, #state{port = Port}) ->
-    % Create a socket (this doesn't bind to the port, it's just for sending)
+send_to_gui(Data, #state{out_port = Port}) ->
+    % Create a socket (this doesn't bind to the out_port, it's just for sending)
     {ok, Socket} = gen_udp:open(0),
     gen_udp:send(Socket, "localhost", Port, Data),
     gen_udp:close(Socket).

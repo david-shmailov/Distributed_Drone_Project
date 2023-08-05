@@ -72,25 +72,23 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% slave state
 
 slave(state_timeout, _From, _Data) ->
-    io:format("timeout in slave~n"),
     step(slave),
-    io:format("location is ~p~n", [get(location)]),
+    io:format("~p location is ~p~n", [get(id), get(location)]),
     {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
 
-slave(vector_update, _From, {Location,Theta}) ->
-    io:format("vector_update in slave~n"),
-    waypoint_update(Location, Theta),
-    {keep_state};
-slave(cast,{vector_update, {Location,Theta}}, _From) -> % test
+
+slave(cast,{vector_update, {Leader_Location,Leader_Theta}}, _From) -> % test
     io:format("cast vector_update in slave~n"),
-    waypoint_update(Location, Theta),
-    gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
-    try gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) of
-        __ ->
-            io:format("Follower is alive~n")
-    catch
-        _:_ ->
-            io:format("Follower is not alive~n")
+    New_Theta = waypoint_update(Leader_Location, Leader_Theta),
+    gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta_to_wp()), speed = ?STEP_SIZE}}),
+    Current_Location = get(location),
+    case get(followers_pid) of
+        undefined ->
+            io:format("followers_pid is undefined~n");
+        []->
+            io:format("followers_pid is empty~n");
+        [_|_] = Followers ->
+            update_neighbors(Followers, Current_Location, New_Theta)
     end,
     {keep_state,[]};
 
@@ -108,7 +106,7 @@ slave(_Event, _Data, _From) -> % test
 %%% leader state
 
 leader(state_timeout,_From , _Data) ->
-    io:format("timeout in leader~n"),
+    % io:format("~p location is ~p~n", [get(id), get(location)]),
     Distance_to_waypoint = get_distance(get(waypoint),get(location)),
     Waypoints_stack = get(waypoints_stack),
     if
@@ -119,15 +117,18 @@ leader(state_timeout,_From , _Data) ->
         true ->
             next_waypoint(),
             step(leader),
-            gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta()), speed = ?STEP_SIZE}}),
-            case get(follower_pid) of
+            gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = radian_to_degree(get_theta_to_wp()), speed = ?STEP_SIZE}}),
+            Theta = get(theta),
+            Location = get(location),
+            case get(followers_pid) of
                 undefined ->
-                    io:format("follower_pid is undefined~n");
-                _ ->
-                    gen_statem:cast(get(follower_pid), {vector_update, {get(location),get_theta()}}) %%update neighbor only if it is defined
+                    io:format("followers_pid is undefined~n");
+                []->
+                    io:format("followers_pid is empty~n");
+                [_|_] = Followers ->
+                    update_neighbors(Followers, Location, Theta)
             end
     end,
-    io:format("location is ~p~n", [get(location)]),
     {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
 
 leader(cast,{update_value,{Key,Value}},_From) ->
@@ -143,16 +144,13 @@ leader(_Event, _From, _Data) ->
 %%%===================================================================
 %%% Internal functions
 
-get_theta() ->
+get_theta_to_wp() ->
     {X_old,Y_old} =get(waypoint),
     {X_new,Y_new} = get(location),
     X = X_old - X_new,
     Y = Y_old - Y_new,
     math:atan2(Y , X).
-    % case X >= 0 of
-    %     true -> Angle;
-    %     false -> Angle + math:pi()
-    % end.
+
 next_waypoint() ->%%that function is only for leader state
     case get(waypoints_stack) of
         undefined ->
@@ -171,8 +169,12 @@ rotation_matrix({X,Y},Theta)->
 
 waypoint_update({X,Y},Theta) ->
     {X_new,Y_new} = rotation_matrix(get(indentation), Theta),
-    put(waypoint,{X-X_new,Y-Y_new}),
-    put(theta,get_theta()).
+    New_Theta = get_theta_to_wp(),
+    New_Waypoint ={X-X_new,Y-Y_new},
+    put(waypoint,New_Waypoint),
+    put(theta,New_Theta),
+    New_Theta.
+
 indentation_update() ->
     {INDENTATION_X, INDENTATION_Y} = ?INDENTATION,
     put(indentation,{INDENTATION_X*math:pow(-1,get(id)),INDENTATION_Y}).
@@ -214,7 +216,7 @@ increment_waypoint(undefined)->
         true ->
             put(theta,0);%assign random theta
         false ->
-            put(theta,get_theta())
+            put(theta,get_theta_to_wp())
     end,
     increment_waypoint(get(theta));    
      %update waypoint
@@ -225,7 +227,7 @@ increment_waypoint(Angle)->
 
 
 step(leader)->
-    Angle = get_theta(),
+    Angle = get_theta_to_wp(),
     {X,Y} = get(location),
     put(location,{X+?STEP_SIZE*math:cos(Angle),Y+?STEP_SIZE*math:sin(Angle)}); %update location
 
@@ -242,3 +244,9 @@ radian_to_degree(Radian) ->
 
 degree_to_radian(Degree) ->
     Degree * (math:pi()/180).
+
+update_neighbors([], _, _) ->
+    ok;
+update_neighbors([H|T], Location, Theta)->
+    gen_statem:cast(H, {vector_update, {Location,Theta}}),
+    update_neighbors(T, Location, Theta).
