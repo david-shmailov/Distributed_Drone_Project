@@ -1,6 +1,6 @@
 
 -module(gui_server).
-
+-include("../project_def.hrl").
 -behaviour(gen_server).
 
 -export([start_link/1]).
@@ -14,8 +14,6 @@
          code_change/3]).
 
 -record(state, {out_port, in_port}).
--define(RETRY_DELAY, 1000).
--record(drone, {id, location, theta, speed}).
 
 
 start_link(Port) ->
@@ -52,7 +50,6 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast({drone_update, Stack}, State) ->
-    io:format("Drone update: ~p~n", [Stack]),
     send_stack_to_gui(Stack, State),
     {noreply, State};
 

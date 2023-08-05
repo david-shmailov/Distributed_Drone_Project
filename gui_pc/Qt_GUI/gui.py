@@ -101,7 +101,7 @@ class DroneGridApp(QMainWindow):
         # start timing generator
         self.TG_Thread = TimingGenerator()
         self.TG_Thread.time_tick_signal.connect(self.move_drones_slot)
-        self.TG_Thread.start()
+        # self.TG_Thread.start()
 
 
 

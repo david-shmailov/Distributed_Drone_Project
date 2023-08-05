@@ -1,5 +1,5 @@
 -module(gs_server).
-
+-include("../../project_def.hrl").
 -behaviour(gen_server).
 
 -export([start_link/0]).
@@ -12,17 +12,12 @@
          terminate/2,
          code_change/3]).
 
--define(RETRY_DELAY, 1000).
--define(GUI_NODE, 'gui@localhost').
--define(GUI_SERVER, 'gui_server').
--define(STACK_SIZE, 0). % we might not need aggregation at all 
--define(WORLD_SIZE,650).
+
 
 %% State record
 -record(state, {ets,num_of_drones, data_stack}).
 
 % record for drone location and speed update:
--record(drone, {id, location, theta=0, speed=0}).
 
 
 start_link() ->
