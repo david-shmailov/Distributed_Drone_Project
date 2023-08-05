@@ -169,13 +169,23 @@ waypoint_update({X,Y},Leader_Theta) ->
     {X_new,Y_new} = rotation_matrix(get(indentation), Leader_Theta),
     Theta_to_wp = get_theta_to_wp(),
     New_Waypoint ={{X-X_new,Y-Y_new},Leader_Theta},
-    put(waypoint,New_Waypoint),
+    Interception_point = calculate_interception_point(New_Waypoint),
+    put(waypoint,Interception_point),
     Theta_to_wp.
 
 indentation_update() ->
     {INDENTATION_X, INDENTATION_Y} = ?INDENTATION,
     put(indentation,{INDENTATION_X,INDENTATION_Y*math:pow(-1,get(id))}).
 
+
+calculate_interception_point({{WP_X,WP_Y}, WP_Theta}=Waypoint) ->
+    Position = get(location),
+    Distance = get_distance(Waypoint,Position),
+    ToT = 3/Distance,
+    X_future = WP_X + ToT*math:cos(WP_Theta),
+    Y_future = WP_Y + ToT*math:sin(WP_Theta),
+    % Theta_to_future_WP = math:atan2(Y_future - Y , X_future - X),
+    {{X_future,Y_future},WP_Theta}.
 
 
 %%%-------------------------------------------------------------------
@@ -255,7 +265,7 @@ update_neighbors([H|T], Location, Theta)->
 
 
 update_gs() ->
-    Theta = radian_to_degree(get(theta)),%get_theta_to_wp()),
+    Theta = radian_to_degree(get(theta)),
     {{Wp_X, Wp_Y},Wp_rad} = get(waypoint),
     Wp_deg = radian_to_degree(Wp_rad),
     Waypoint = {{Wp_X, Wp_Y}, Wp_deg},

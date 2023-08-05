@@ -177,6 +177,8 @@ class DroneGridApp(QMainWindow):
             self.move_drone(drone_id, x, y, angle, speed)
 
     def move_wp(self, drone_id, wp_x, wp_y):
+        if drone_id > 0:
+            return
         if drone_id in self.drones:
             wp_item = self.drones[drone_id]['wp']
             wp_item.setPos(wp_x, convert_to_scene_coordinates(wp_y)) # move the (0,0) point to the center of screen
