@@ -9,7 +9,7 @@
 % gen_statem callbacks
 -export([init/1, terminate/3, callback_mode/0, code_change/4]).
 -export([slave/3, leader/3]).
-
+-record(borders, {left=0, right=?WORLD_SIZE/2, top=?WORLD_SIZE/2, bottom=0}).
 
 
 
@@ -18,6 +18,10 @@
 %%% id - id of the drone - intedger
 %%% location - location of the drone - {x,y} ,x,y are integers
 %%% state - state of the drone - atom - slave/leader
+%%% 
+
+%%% @todo: add the following event: become leader
+%%%       : add the following event: target found
 %%% 
 
 start_link(Drone) when is_record(Drone,drone) ->
@@ -43,6 +47,7 @@ init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone]) 
     put(theta, degree_to_radian(Theta)),
     put(speed, Speed),
     put(waypoint, {Location, Theta}),
+    put(borders, #borders{}),
     case ID of
         0 ->
             State = leader;
@@ -230,7 +235,8 @@ step(leader)->
     Theta = get_theta_to_wp(),
     put(speed,1),
     {X,Y} = get(location),
-    put(location,{X+?STEP_SIZE*math:cos(Theta),Y+?STEP_SIZE*math:sin(Theta)}); %update location
+    put(location,{X+?STEP_SIZE*math:cos(Theta),Y+?STEP_SIZE*math:sin(Theta)}), %update location
+    check_borders();
 
 step(slave)->
     Old_speed = get(speed),
@@ -241,6 +247,7 @@ step(slave)->
     Theta_deg = radian_to_degree(Theta),
     put(theta,Theta),
     put(location,{X+Speed*?STEP_SIZE*math:cos(Theta), Y+Speed*?STEP_SIZE*math:sin(Theta)}),
+    check_borders(),
     if
         Old_theta_deg /= Theta_deg orelse Old_speed/=Speed ->
             update_gs();
@@ -270,3 +277,14 @@ update_gs() ->
     Wp_deg = radian_to_degree(Wp_rad),
     Waypoint = {{Wp_X, Wp_Y}, Wp_deg},
     gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint}}).
+
+check_borders() ->
+    Border_record = get(borders),
+    #borders{left=Left,right=Right,top = Top,bottom = Bottom}=Border_record,
+    {X,Y} = get(location),
+    case X<Left orelse X>Right orelse Y<Bottom orelse Y>Top of
+        false ->
+            ok;
+        true ->
+            update_gs()
+    end.
