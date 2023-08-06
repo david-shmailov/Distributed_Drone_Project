@@ -98,8 +98,12 @@ code_change(_OldVsn, State, Data, _Extra) ->
 slave(state_timeout, _From, _Data) ->
     step(slave),
     io:format("~p location is ~p~n", [get(id), get(location)]),
-    check_borders(),
-    {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+    case check_borders() of
+        ok ->
+            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+        terminate ->
+            {stop, normal, _Data}
+    end;
 
 
 slave(cast,{vector_update, {Leader_Location,Leader_Theta}}, _From) -> % test
@@ -116,6 +120,26 @@ slave(cast,{vector_update, {Leader_Location,Leader_Theta}}, _From) -> % test
             update_neighbors(Followers, WP_Position, WP_Theta)
     end,
     {keep_state,[]};
+
+slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % test
+    io:format("cast vector_update in slave~n"),
+    waypoint_update(Leader_Location, Leader_Theta),
+    Current_Location = get(location),
+    {WP_Position, WP_Theta}= get(waypoint),
+    case get(followers_pid) of
+        undefined ->
+            io:format("followers_pid is undefined~n");
+        []->
+            io:format("followers_pid is empty~n");
+        [_|_] = Followers ->
+            update_neighbors(Followers, WP_Position, WP_Theta)
+    end,
+
+    % gen_statem:reply(_From, ok),
+    % {reply,ok, slave,_Data};
+    {keep_state,[{reply,_From,ok}]};
+
+
 
 slave(cast,{update_value,{Key,Value}},_From) -> % test
     io:format("cast update_value in slave~n"),
@@ -291,10 +315,22 @@ degree_to_radian(Degree) ->
 update_neighbors([], _, _) ->
     ok;
 update_neighbors([H|T], Location, Theta)->
-    gen_statem:cast(H, {vector_update, {Location,Theta}}),
-    update_neighbors(T, Location, Theta).
+    try
+        gen_statem:call(H, {vector_update, {Location,Theta}}),
+        update_neighbors(T, Location, Theta)
+    catch
+        error:{timeout_value,_} ->
+            {ok,New_PID}=gen_server:call(gs_server, {dead_neighbour, H}),
+            gen_server:cast(New_PID, {vector_update, {Location,Theta}}),
+            update_neighbors(T, Location, Theta),
+            replace_dead_neighbour(T,H,New_PID)
+    end.
 
 
+replace_dead_neighbour(Neighbors_list,Dead_PID, New_PID) ->
+    Neighbors = get(neighbors),
+    New_Neighbors = lists:map(fun(X) -> if X == Dead_PID -> New_PID; true -> X end end, Neighbors),
+    put(neighbors, New_Neighbors).
 
 update_gs() ->
     Theta = radian_to_degree(get(theta)),

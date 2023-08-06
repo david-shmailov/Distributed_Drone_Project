@@ -48,7 +48,7 @@ handle_call({establish_comm, _}, _From, State) ->
 
 handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
-    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2,?WORLD_SIZE/2}}, Borders)} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2-100,?WORLD_SIZE/2+100}}, Borders)} || Id <- lists:seq(0,Num-1)],
     io:format("launched ~p drones~n", [Num]),
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
@@ -85,12 +85,31 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
             io:format("Drone ~p is crossing border~n", [ID]),
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
                 ok -> 
+                    [{Old_PID, _}] = ets:lookup(gs_ets, ID),
                     ets:delete(gs_ets, ID),
+                    Reply= gen_server:call({gs_server, Next_GS}, {ask_for_pid, ID}),
+                    io:format("Reply from GS ~p: ~p~n", [Next_GS, Reply]),
+                    % io:format("Drone ~p is crossing border to GS ~p Older PID~p and New PID~p~n", [ID, Next_GS,Old_PID, New_PID]),%{Reply,{ID, New_PID}}
+                    ets:insert(gs_ets, {Old_PID, Reply}),
                     {reply, terminate, State}; % terminate the old drone
                 _ -> 
                     io:format("Error creating drone on neighbor GS ~p~n", [Next_GS]),
                     {reply, ok, State} % drone creation failed, dont terminate the old drone
             end
+    end;
+
+handle_call({dead_neighbour,Old_PID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
+    [{_,New_Pid}]=ets:lookup(gs_ets, Old_PID),
+    io:format("Dead neighbour: ~p~n", [Old_PID]),
+    {reply, {ok,Old_PID}, State};
+
+handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the previous gs when he transfered a drone to this gs
+    %the gs that killed his drone will ask for the pid of the drone that was killed
+    case ets:lookup(gs_ets, ID) of
+        [{ID, PID}] ->
+            {reply, {ok, PID}, State};
+        [] ->
+            {reply, {error, not_found}, State}
     end;
 
 handle_call(_Request, _From, State) ->
