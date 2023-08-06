@@ -73,7 +73,7 @@ handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
 handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) ->
     {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
     ets:insert(gs_ets, {ID, PID}),
-    {reply, ok, State};
+    {reply, {ok, PID}, State};
 
 
 handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
@@ -84,13 +84,9 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
         Next_GS ->
             io:format("Drone ~p is crossing border~n", [ID]),
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
-                ok -> 
-                    [{Old_PID, _}] = ets:lookup(gs_ets, ID),
-                    ets:delete(gs_ets, ID),
-                    Reply= gen_server:call({gs_server, Next_GS}, {ask_for_pid, ID}),
-                    io:format("Reply from GS ~p: ~p~n", [Next_GS, Reply]),
-                    % io:format("Drone ~p is crossing border to GS ~p Older PID~p and New PID~p~n", [ID, Next_GS,Old_PID, New_PID]),%{Reply,{ID, New_PID}}
-                    ets:insert(gs_ets, {Old_PID, Reply}),
+                {ok, New_PID} -> 
+                    io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
+                    ets:insert(gs_ets, {ID, New_PID}),
                     {reply, terminate, State}; % terminate the old drone
                 _ -> 
                     io:format("Error creating drone on neighbor GS ~p~n", [Next_GS]),
@@ -98,10 +94,10 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
             end
     end;
 
-handle_call({dead_neighbour,Old_PID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
-    [{_,New_Pid}]=ets:lookup(gs_ets, Old_PID),
-    io:format("Dead neighbour: ~p~n", [Old_PID]),
-    {reply, {ok,Old_PID}, State};
+handle_call({dead_neighbour,ID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
+    [New_Pid]=ets:lookup(gs_ets, ID),
+    io:format("Drone ID: ~p, new PID~p~n", [ID,New_Pid]),
+    {reply, {ok,New_Pid}, State};
 
 handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the previous gs when he transfered a drone to this gs
     %the gs that killed his drone will ask for the pid of the drone that was killed
@@ -204,9 +200,13 @@ send_to_drone(ID, {Key,Value}) ->
 
 
 get_followers_PIDs(Followers_IDs) -> get_followers_PIDs(Followers_IDs, []).
+
+
 get_followers_PIDs([ID|T], Followers_PIDs) ->
     [{ID, PID}] = ets:lookup(gs_ets, ID),
-    get_followers_PIDs(T, Followers_PIDs ++ [PID]);
+    get_followers_PIDs(T, Followers_PIDs ++ [{ID,PID}]);
+
+
 get_followers_PIDs([], Followers_PIDs) ->
     Followers_PIDs.
 

@@ -49,7 +49,7 @@ init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on reb
     lists:foreach(fun({Key, Value}) -> put(Key, Value) end, Internal_state),
     put(borders, Borders),
     ID = get(id),
-    io:format("Drone ~p is reborn in node ~p~n", [ID, node()]),
+    io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
     case ID of
         0 ->
             State = leader;
@@ -97,7 +97,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 
 slave(state_timeout, _From, _Data) ->
     step(slave),
-    io:format("~p location is ~p~n", [get(id), get(location)]),
+    % io:format("~p location is ~p~n", [get(id), get(location)]),
     case check_borders() of
         ok ->
             {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
@@ -106,25 +106,25 @@ slave(state_timeout, _From, _Data) ->
     end;
 
 
-slave(cast,{vector_update, {Leader_Location,Leader_Theta}}, _From) -> % test
-    io:format("cast vector_update in slave~n"),
-    waypoint_update(Leader_Location, Leader_Theta),
-    Current_Location = get(location),
-    {WP_Position, WP_Theta}= get(waypoint),
-    case get(followers_pid) of
-        undefined ->
-            io:format("followers_pid is undefined~n");
-        []->
-            io:format("followers_pid is empty~n");
-        [_|_] = Followers ->
-            update_neighbors(Followers, WP_Position, WP_Theta)
-    end,
-    {keep_state,[]};
+% slave(cast,{vector_update, {Leader_Location,Leader_Theta}}, _From) -> % test
+%     io:format("cast vector_update in slave~n"),
+%     waypoint_update(Leader_Location, Leader_Theta),
+%     Current_Location = get(location),
+%     {WP_Position, WP_Theta}= get(waypoint),
+%     case get(followers_pid) of
+%         undefined ->
+%             io:format("followers_pid is undefined~n");
+%         []->
+%             io:format("followers_pid is empty~n");
+%         [_|_] = Followers ->
+%             update_neighbors(Followers, WP_Position, WP_Theta)
+%     end,
+%     {keep_state,[]};
 
 slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % test
+    gen_statem:reply(_From, ok),
     io:format("cast vector_update in slave~n"),
     waypoint_update(Leader_Location, Leader_Theta),
-    Current_Location = get(location),
     {WP_Position, WP_Theta}= get(waypoint),
     case get(followers_pid) of
         undefined ->
@@ -132,12 +132,10 @@ slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % t
         []->
             io:format("followers_pid is empty~n");
         [_|_] = Followers ->
-            update_neighbors(Followers, WP_Position, WP_Theta)
+            update_neighbors(Followers, WP_Position, WP_Theta) 
     end,
 
-    % gen_statem:reply(_From, ok),
-    % {reply,ok, slave,_Data};
-    {keep_state,[{reply,_From,ok}]};
+    {keep_state,[]};
 
 
 
@@ -314,23 +312,24 @@ degree_to_radian(Degree) ->
 
 update_neighbors([], _, _) ->
     ok;
-update_neighbors([H|T], Location, Theta)->
+update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
     try
-        gen_statem:call(H, {vector_update, {Location,Theta}}),
+        gen_statem:call(PID, {vector_update, {Location,Theta}}),
         update_neighbors(T, Location, Theta)
     catch
-        error:{timeout_value,_} ->
-            {ok,New_PID}=gen_server:call(gs_server, {dead_neighbour, H}),
-            gen_server:cast(New_PID, {vector_update, {Location,Theta}}),
-            update_neighbors(T, Location, Theta),
-            replace_dead_neighbour(T,H,New_PID)
+        %error:{timeout_value,_} ->
+        exit:{noproc, _} ->
+            io:format("Requesting new PID"),
+            {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
+            replace_dead_neighbour(Neighbor_ID,New_PID),
+            update_neighbors([New_PID | T], Location, Theta)
     end.
 
 
-replace_dead_neighbour(Neighbors_list,Dead_PID, New_PID) ->
-    Neighbors = get(neighbors),
-    New_Neighbors = lists:map(fun(X) -> if X == Dead_PID -> New_PID; true -> X end end, Neighbors),
-    put(neighbors, New_Neighbors).
+replace_dead_neighbour(ID, New_PID) ->
+    Neighbors = get(followers_pid),
+    New_Neighbors = lists:map(fun({Neighbor_ID,PID}) -> if Neighbor_ID == ID -> {Neighbor_ID, New_PID}; true -> {Neighbor_ID,PID} end end, Neighbors),
+    put(followers_pid, New_Neighbors).
 
 update_gs() ->
     Theta = radian_to_degree(get(theta)),

@@ -18,7 +18,7 @@ start(_StartType, _StartArgs) ->
     % only gs1 creates!
     case node() of
         'gs1@localhost' ->
-            gen_server:call(gs_server, {launch_drones, 3}),
+            gen_server:call(gs_server, {launch_drones, 2}),
             gen_server:call(gs_server, set_followers),
             gen_server:call(gs_server, {set_waypoints, [ {{?WORLD_SIZE/4,?WORLD_SIZE/4}, 0}, {{?WORLD_SIZE/4,3*?WORLD_SIZE/4}, 0}, {{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4},0},{{3*?WORLD_SIZE/4,?WORLD_SIZE/4},0}]});
         _ ->
