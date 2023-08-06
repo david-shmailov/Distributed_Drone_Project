@@ -64,7 +64,7 @@ handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
     io:format("Setting followers~n"),
     Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
     Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
-    [send_to_drone(ID, {followers_pid, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)],
+    [send_to_drone(ID, {followers, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)],
     {reply, ok, State};
 
 

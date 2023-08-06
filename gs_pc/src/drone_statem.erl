@@ -106,31 +106,17 @@ slave(state_timeout, _From, _Data) ->
     end;
 
 
-% slave(cast,{vector_update, {Leader_Location,Leader_Theta}}, _From) -> % test
-%     io:format("cast vector_update in slave~n"),
-%     waypoint_update(Leader_Location, Leader_Theta),
-%     Current_Location = get(location),
-%     {WP_Position, WP_Theta}= get(waypoint),
-%     case get(followers_pid) of
-%         undefined ->
-%             io:format("followers_pid is undefined~n");
-%         []->
-%             io:format("followers_pid is empty~n");
-%         [_|_] = Followers ->
-%             update_neighbors(Followers, WP_Position, WP_Theta)
-%     end,
-%     {keep_state,[]};
 
 slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % test
     gen_statem:reply(_From, ok),
     io:format("cast vector_update in slave~n"),
     waypoint_update(Leader_Location, Leader_Theta),
     {WP_Position, WP_Theta}= get(waypoint),
-    case get(followers_pid) of
+    case get(followers) of
         undefined ->
-            io:format("followers_pid is undefined~n");
+            io:format("followers is undefined~n");
         []->
-            io:format("followers_pid is empty~n");
+            io:format("followers is empty~n");
         [_|_] = Followers ->
             update_neighbors(Followers, WP_Position, WP_Theta) 
     end,
@@ -165,11 +151,11 @@ leader(state_timeout,_From , _Data) ->
             next_waypoint(),
             step(leader),
             update_gs(),
-            case get(followers_pid) of
+            case get(followers) of
                 undefined ->
-                    io:format("followers_pid is undefined~n");
+                    io:format("followers is undefined~n");
                 []->
-                    io:format("followers_pid is empty~n");
+                    io:format("followers is empty~n");
                 [_|_] = Followers ->
                     update_neighbors(Followers, get(location), get(theta))
             end
@@ -314,12 +300,11 @@ update_neighbors([], _, _) ->
     ok;
 update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
     try
-        gen_statem:call(PID, {vector_update, {Location,Theta}}),
+        gen_statem:call(PID, {vector_update, {Location,Theta}}), % returns call dirty after returning to GS1 from GS4 and trying to update
         update_neighbors(T, Location, Theta)
     catch
-        %error:{timeout_value,_} ->
         exit:{noproc, _} ->
-            io:format("Requesting new PID"),
+            io:format("Requesting new PID~n"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
             update_neighbors([New_PID | T], Location, Theta)
@@ -327,9 +312,9 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
 
 
 replace_dead_neighbour(ID, New_PID) ->
-    Neighbors = get(followers_pid),
+    Neighbors = get(followers),
     New_Neighbors = lists:map(fun({Neighbor_ID,PID}) -> if Neighbor_ID == ID -> {Neighbor_ID, New_PID}; true -> {Neighbor_ID,PID} end end, Neighbors),
-    put(followers_pid, New_Neighbors).
+    put(followers, New_Neighbors).
 
 update_gs() ->
     Theta = radian_to_degree(get(theta)),
