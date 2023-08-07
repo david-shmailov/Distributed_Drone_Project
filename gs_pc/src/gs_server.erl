@@ -44,6 +44,8 @@ handle_call({establish_comm, _}, _From, State) ->
 handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
     Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2-100,?WORLD_SIZE/2+100}}, Borders)} || Id <- lists:seq(0,Num-1)],
+    Drones_ID_updated = [{Id,PID} || {Id,{ok,PID}} <- Drones_ID],
+    [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
     {reply, ok, State#state{num_of_drones = Num}};
@@ -80,8 +82,9 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
             io:format("Drone ~p is crossing border~n", [ID]),
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
                 {ok, New_PID} -> 
-                    % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
+                    io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
                     ets:insert(gs_ets, {ID, New_PID}),
+                    [gen_server:cast({gs_server,Server},{id_pid_update,[{ID,New_PID}]})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node(),Server =/= Next_GS],
                     reupdate_neighbour(ID,New_PID),
                     {reply, terminate, State}; % terminate the old drone
                 _ -> 
@@ -89,6 +92,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
                     {reply, ok, State} % drone creation failed, dont terminate the old drone
             end
     end;
+
 
 
 
@@ -121,6 +125,13 @@ handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
     ets:insert(gs_ets, Drone),
     New_State = send_to_gui(Drone, State),
     {noreply, New_State};
+
+
+handle_cast({id_pid_update,ID_PID_LIST}, State) ->
+    io:format("ID PID update: ~p~n", [ID_PID_LIST]),
+    id_pid_insertion(ID_PID_LIST),
+    {noreply, State};
+
 
 
 handle_cast(_Msg, State) ->
@@ -271,5 +282,22 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
     end.
 
 
+id_pid_insertion([])->
+    ok;
+id_pid_insertion([{ID,PID}|T]) ->
+    io:format("inserting {~p,~p}~n",[ID,PID]),
+    ets:insert(gs_ets,{ID,PID}),
+    id_pid_insertion(T).
 
 
+% get_pid_from_db(ID) ->
+%     case mnesia:transaction(fun() -> mnesia:read({database, ID}) end) of
+%         {atomic, [#mnesia_record{id = ID, pid = PID}]} ->
+%             {ok,PID};
+%         _ ->
+%             {error, not_found},
+%             io:format("Drone ~p not found~n", [ID])
+%     end.
+
+% set_pid_in_db(ID, PID) ->
+%     mnesia:transaction(fun() -> mnesia:write(database, #mnesia_record{id = ID, pid = PID}, write) end).
