@@ -111,7 +111,6 @@ slave(state_timeout, _From, _Data) ->
 slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % test
     gen_statem:reply(_From, ok),    
     io:format("Drone ~p :call vector_update in slave~n",[get(id)]),
-    io:format("cast vector_update in slave~n"),
     waypoint_update(Leader_Location, Leader_Theta),
     {WP_Position, WP_Theta}= get(waypoint),
     case get(followers) of
@@ -311,7 +310,7 @@ update_neighbors([], _, _) ->
     ok;
 update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
     try
-        io:format("calling ~p~n",[PID]),
+        % io:format("calling ~p~n",[PID]),
         gen_statem:call(PID, {vector_update, {Location,Theta}}), % returns call dirty after returning to GS1 from GS4 and trying to update
         update_neighbors(T, Location, Theta)
     catch
@@ -339,7 +338,7 @@ update_gs() ->
     {{Wp_X, Wp_Y},Wp_rad} = get(waypoint),
     Wp_deg = radian_to_degree(Wp_rad),
     Waypoint = {{Wp_X, Wp_Y}, Wp_deg},
-    gen_server:call(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint}}).
+    gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint}}).
 
 check_borders() ->
     Border_record = get(borders),
@@ -362,8 +361,8 @@ cross_border(Location) ->
     end,
     % gen_server:call and grab the reply
     % returns 'ok' or 'terminate' atom
-    io:format("Crossing border and my neighbours are~p~n",[Dict]),
-    gen_server:call(gs_server, {crossing_border, get(id), Location,Dict}).
+    % io:format("Crossing border and my neighbours are~p~n",[Dict]),
+    gen_server:call(gs_server, {crossing_border, get(id), Location,Dict}, infinity).
 
     % {stop,normal,Location}.
 

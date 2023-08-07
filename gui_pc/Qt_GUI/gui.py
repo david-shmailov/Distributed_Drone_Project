@@ -13,7 +13,7 @@ import math
 import time
 import json
 
-SIZE = 650
+SIZE = 300
 TIME_TICK = 0.1
 class TimingGenerator(QThread):
     # Define a signal that will be emitted with the new x and y values
@@ -156,13 +156,16 @@ class DroneGridApp(QMainWindow):
         drone_item = QtWidgets.QGraphicsPolygonItem(triangle)
         drone_item.setBrush(QBrush(Qt.red))
         drone_item.setPos(10000, 10000)
+        drone_label = QtWidgets.QGraphicsTextItem(str(drone_id))
+        drone_label.setPos(10000, 10000 + self.drone_icon_size)
         star = create_star(self.drone_icon_size)
         wp_item = QtWidgets.QGraphicsPolygonItem(star)
         wp_item.setBrush(QBrush(Qt.blue))
         wp_item.setPos(10000, 10000)
+        self.scene.addItem(drone_label)
         self.scene.addItem(wp_item)
         self.scene.addItem(drone_item)
-        self.drones[drone_id] = {'obj':drone_item, 'movement':(0,0), 'location':(0,0), 'wp':wp_item}
+        self.drones[drone_id] = {'obj':drone_item,'label':drone_label, 'movement':(0,0), 'location':(0,0), 'wp':wp_item}
 
     def move_drone(self, drone_id, x, y, angle, speed):
         if drone_id in self.drones:
@@ -170,6 +173,8 @@ class DroneGridApp(QMainWindow):
 
             drone_item.setRotation(-angle+90)
             drone_item.setPos(x, convert_to_scene_coordinates(y)) # move the (0,0) point to the center of screen
+            drone_label = self.drones[drone_id]['label']
+            drone_label.setPos(x, convert_to_scene_coordinates(y)+ self.drone_icon_size) # move the (0,0) point to the center of screen
             self.drones[drone_id]['movement'] = (angle, speed)
             self.drones[drone_id]['location'] = (x, y)
         else:

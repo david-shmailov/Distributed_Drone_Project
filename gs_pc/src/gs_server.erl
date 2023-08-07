@@ -33,11 +33,6 @@ init([]) ->
     {ok, #state{gs_id = GS_ID, data_stack=[], borders = Borders, neighbors= Neighbors}}.
 
 
-handle_call({drone_update, Drone}, _From, State) when is_record(Drone,drone) ->
-    io:format("Drone update: ~p~n", [Drone]),
-    ets:insert(gs_ets, Drone),
-    New_State = send_to_gui(Drone, State),
-    {reply, ok, New_State};
     
 
 handle_call({establish_comm, _}, _From, State) ->
@@ -49,7 +44,6 @@ handle_call({establish_comm, _}, _From, State) ->
 handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
     Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2-100,?WORLD_SIZE/2+100}}, Borders)} || Id <- lists:seq(0,Num-1)],
-    io:format("launched ~p drones~n", [Num]),
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
     {reply, ok, State#state{num_of_drones = Num}};
@@ -72,7 +66,7 @@ handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
 
 handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) ->
     {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
-    io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
+    % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     ets:insert(gs_ets, {ID, PID}),
     {reply, {ok, PID}, State};
 
@@ -86,7 +80,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
             io:format("Drone ~p is crossing border~n", [ID]),
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
                 {ok, New_PID} -> 
-                    io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
+                    % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
                     ets:insert(gs_ets, {ID, New_PID}),
                     reupdate_neighbour(ID,New_PID),
                     {reply, terminate, State}; % terminate the old drone
@@ -101,7 +95,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
 
 handle_call({dead_neighbour,ID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
     [New_Pid]=ets:lookup(gs_ets, ID),
-    io:format("Drone ID: ~p, new PID~p~n", [ID,New_Pid]),
+    % io:format("Drone ID: ~p, new PID~p~n", [ID,New_Pid]),
     {reply, {ok,New_Pid}, State};
 
 handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the previous gs when he transfered a drone to this gs
@@ -123,7 +117,7 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
-    io:format("Drone update: ~p~n", [Drone]),
+    % io:format("Drone update: ~p~n", [Drone]),
     ets:insert(gs_ets, Drone),
     New_State = send_to_gui(Drone, State),
     {noreply, New_State};
@@ -240,7 +234,7 @@ calculate_borders_and_neighbors(GS_ID) ->
 send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
     if  
         length(Stack) >= ?STACK_SIZE ->
-            io:format("Stack is full~n"), % debug
+            % io:format("Stack is full~n"), % debug
             gen_server:cast({?GUI_SERVER, ?GUI_NODE} , {drone_update, [Drone|Stack]}),
             State#state{data_stack = []};
         true ->
