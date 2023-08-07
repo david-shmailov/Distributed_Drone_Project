@@ -25,3 +25,5 @@ src/test.erl
 *.beam
 src/sender.erl
 /GUI/testing_socket.py
+gs_pc/Mnesia.*
+gui_pc/Mnesia.*
