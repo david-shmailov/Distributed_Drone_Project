@@ -96,6 +96,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%% slave state
 
 slave(state_timeout, _From, _Data) ->
+    % io:format("Drone ~p :slave state_timeout~n",[get(id)]),
     step(slave),
     % io:format("~p location is ~p~n", [get(id), get(location)]),
     case check_borders() of
@@ -108,7 +109,8 @@ slave(state_timeout, _From, _Data) ->
 
 
 slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % test
-    gen_statem:reply(_From, ok),
+    gen_statem:reply(_From, ok),    
+    io:format("Drone ~p :call vector_update in slave~n",[get(id)]),
     io:format("cast vector_update in slave~n"),
     waypoint_update(Leader_Location, Leader_Theta),
     {WP_Position, WP_Theta}= get(waypoint),
@@ -126,8 +128,12 @@ slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % t
 
 
 slave(cast,{update_value,{Key,Value}},_From) -> % test
-    io:format("cast update_value in slave~n"),
+    io:format("cast update_value in slave Key:~p ,Value:~p~n",[Key,Value]),
     put(Key,Value),
+    {keep_state,[]};
+
+slave(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
+    replace_dead_neighbour(Reborn_ID, New_PID),
     {keep_state,[]};
 
 slave(_Event, _Data, _From) -> % test
@@ -170,6 +176,10 @@ leader(state_timeout,_From , _Data) ->
 leader(cast,{update_value,{Key,Value}},_From) ->
     io:format("cast update_value in leader Key: ~p, Value: ~p ~n", [Key,Value]),
     put(Key,Value),
+    {keep_state,[]};
+
+leader(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
+    replace_dead_neighbour(Reborn_ID, New_PID),
     {keep_state,[]};
 
 leader(_Event, _From, _Data) ->
@@ -273,6 +283,7 @@ step(leader)->
 
 
 step(slave)->
+    % io:format("Drone ~p is stepping~n",[get(id)]),
     Old_speed = get(speed),
     Old_theta_deg = radian_to_degree(get(theta)),
     {X,Y} = get(location),
@@ -300,6 +311,7 @@ update_neighbors([], _, _) ->
     ok;
 update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
     try
+        io:format("calling ~p~n",[PID]),
         gen_statem:call(PID, {vector_update, {Location,Theta}}), % returns call dirty after returning to GS1 from GS4 and trying to update
         update_neighbors(T, Location, Theta)
     catch
@@ -307,7 +319,13 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
             io:format("Requesting new PID~n"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
+            update_neighbors([New_PID | T], Location, Theta);
+        Error:Kind->
+            io:format("other error ~p:~p~n",[Error,Kind]),
+            {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
+            replace_dead_neighbour(Neighbor_ID,New_PID),
             update_neighbors([New_PID | T], Location, Theta)
+
     end.
 
 
@@ -339,12 +357,24 @@ check_borders() ->
 cross_border(Location) ->
     % get all key value pairs from process dictionary in a list
     case process_info(self(), dictionary) of
-        {dictionary, Dict} -> Dict;
-        _ -> Dict = []
+        {dictionary, Dict} -> terminate;
+        Dict ->  terminate
     end,
     % gen_server:call and grab the reply
     % returns 'ok' or 'terminate' atom
+    io:format("Crossing border and my neighbours are~p~n",[Dict]),
     gen_server:call(gs_server, {crossing_border, get(id), Location,Dict}).
+
+    % {stop,normal,Location}.
+
+
+
+get_value(Key, [{Key, Value} | _]) ->
+    Value;
+get_value(Key, [_ | Rest]) ->
+    get_value(Key, Rest);
+get_value(_, []) ->
+    not_found.
 
 
 

@@ -72,6 +72,7 @@ handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
 
 handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) ->
     {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
+    io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     ets:insert(gs_ets, {ID, PID}),
     {reply, {ok, PID}, State};
 
@@ -87,12 +88,16 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
                 {ok, New_PID} -> 
                     io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
                     ets:insert(gs_ets, {ID, New_PID}),
+                    reupdate_neighbour(ID,New_PID),
                     {reply, terminate, State}; % terminate the old drone
                 _ -> 
                     io:format("Error creating drone on neighbor GS ~p~n", [Next_GS]),
                     {reply, ok, State} % drone creation failed, dont terminate the old drone
             end
     end;
+
+
+
 
 handle_call({dead_neighbour,ID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
     [New_Pid]=ets:lookup(gs_ets, ID),
@@ -191,6 +196,7 @@ check_borders({X,Y}, #state{borders = Borders, neighbors = Neighbors}) ->
 
 
 send_to_drone(ID, {Key,Value}) ->
+    io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
     case ets:lookup(gs_ets, ID) of
         [{ID, PID}] ->
             gen_statem:cast(PID, {update_value, {Key,Value}});
@@ -243,4 +249,33 @@ send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
     end.
 
 
-    
+get_value(Key, [{Key, Value} | _]) ->
+    Value;
+get_value(Key, [_ | Rest]) ->
+    get_value(Key, Rest);
+get_value(_, []) ->
+    not_found.
+
+reupdate_neighbour(Reborn_ID,New_PID) ->
+    io:format("Reupdate neighbour ~p with ~p~n",[Reborn_ID,New_PID]),
+    case Reborn_ID >= 2 of
+        false -> %means that the drone leader is the pack leader
+            case ets:lookup(gs_ets,0) of
+                [{0, PID}] ->
+                    gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
+                [] ->
+                    {error, not_found}
+            end;
+        true ->
+            Leader = Reborn_ID -2,
+            case ets:lookup(gs_ets,Leader) of
+                [{Leader, PID}] ->
+                    gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
+                [] ->
+                    {error, not_found}
+            end
+    end.
+
+
+
+

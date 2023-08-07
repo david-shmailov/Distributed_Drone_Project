@@ -9,5 +9,5 @@
 -record(borders, {left, right, top, bottom}).
 
 -define(TIMEOUT, 100).
--define(INDENTATION,{0,20}).
+-define(INDENTATION,{0,5}).
 -define(STEP_SIZE,1).
