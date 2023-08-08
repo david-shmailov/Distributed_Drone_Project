@@ -20,18 +20,20 @@
 
 start(_StartType, _StartArgs) ->
     {ok, SupPid} = gui_pc_sup:start_link(),
-    Port = 8000,
-    start_python_gui(Port),
-    gui_server:start_link(Port),
+    Port_erl2py = 8000,
+    Port_py2erl = 8001,
+    start_python_gui(Port_erl2py,Port_py2erl),
+    gui_server:start_link(Port_erl2py,Port_py2erl),
     {ok, SupPid}.
 
 stop(_State) ->
     ok. % todo causes bad return 
 
-start_python_gui(Port) ->
+start_python_gui(Port_erl2py,Port_py2erl) ->
     io:format("Starting python GUI~n"),
-    Command = "python3 Qt_GUI/gui.py --port " ++ integer_to_list(Port) ++ " &",
-    Cmd_Port = open_port({spawn, Command}, []),
+    Command = io_lib:format("python3 Qt_GUI/gui.py --in_port ~p --out_port ~p &", [Port_erl2py,Port_py2erl]),
+    Str_command = lists:flatten(Command),
+    Cmd_Port = open_port({spawn, Str_command}, []),
     Cmd_Port ! {self(), close}.
 
 
