@@ -28,9 +28,11 @@ start(_StartType, _StartArgs) ->
             % io:format("mnesia started on all nodes~n"),
             % io:format("~p~n" ,[mnesia:create_table(database, [{disc_copies,All_system_nodes}, {attributes, record_info(fields, mnesia_record)}])]),
             % io:format("table created~n"),
-            gen_server:call(gs_server, {launch_drones, 2}),
+            gen_server:call(gs_server, {launch_drones, 30}),
             gen_server:call(gs_server, set_followers),
-            gen_server:call(gs_server, {set_waypoints, [ {{?WORLD_SIZE/4,?WORLD_SIZE/4}, 0}, {{?WORLD_SIZE/4,3*?WORLD_SIZE/4}, 0}, {{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4},0},{{3*?WORLD_SIZE/4,?WORLD_SIZE/4},0}]});
+            gen_server:call(gs_server, {set_waypoints, [ {{?WORLD_SIZE/4,?WORLD_SIZE/4}, 0}, {{?WORLD_SIZE/4,3*?WORLD_SIZE/4}, 0}, {{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4},0},
+            {{3*?WORLD_SIZE/4,?WORLD_SIZE/4},0},{{?WORLD_SIZE-100,?WORLD_SIZE-100},0},{{100,100},0}]}),
+            gen_server:cast(gs_server,{aquire_target,{?WORLD_SIZE/3,?WORLD_SIZE/2+100}});
         _ ->
             ok
     end,

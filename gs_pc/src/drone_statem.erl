@@ -9,7 +9,7 @@
 % gen_statem callbacks
 -export([init/1, terminate/3, callback_mode/0, code_change/4]).
 -export([slave/3, leader/3]).
-
+%circle/3
 
 
 %%%===================================================================
@@ -98,6 +98,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 slave(state_timeout, _From, _Data) ->
     % io:format("Drone ~p :slave state_timeout~n",[get(id)]),
     step(slave),
+    look_for_target(),
     % io:format("~p location is ~p~n", [get(id), get(location)]),
     case check_borders() of
         ok ->
@@ -128,12 +129,32 @@ slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % t
 
 slave(cast,{update_value,{Key,Value}},_From) -> % test
     io:format("cast update_value in slave Key:~p ,Value:~p~n",[Key,Value]),
-    put(Key,Value),
+    if
+        Key == targets ->
+            io:format("Drone ~p :update targets to ~p~n",[get(id),Value]),
+            case get(targets) of
+                undefined ->
+                    put(targets,[Value]);
+                Exsiting_targets ->
+                    put(targets,Exsiting_targets ++ [Value])
+            end;
+        true ->
+            put(Key,Value)
+    end,
     {keep_state,[]};
 
 slave(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
     replace_dead_neighbour(Reborn_ID, New_PID),
     {keep_state,[]};
+% slave(cast,{aquire_targets, Target_Locations},_From)->%%target location is a list of {x,y}
+%     io:format("Drone ~p :aquire_target at ~p~n",[get(id),Target_Locations]),
+%     case get(targets) of
+%         undefined ->
+%             put(targets,Target_Locations);
+%         Exsiting_targets ->
+%             put(targets,Exsiting_targets ++ Target_Locations)
+%         end,
+%     {keep_state,[]};
 
 slave(_Event, _Data, _From) -> % test
     io:format("unknown event ~p in slave~n", [_Event]),
@@ -165,6 +186,7 @@ leader(state_timeout,_From , _Data) ->
                     update_neighbors(Followers, get(location), get(theta))
             end
     end,
+    look_for_target(),
     case check_borders() of
         ok ->
             {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
@@ -174,17 +196,46 @@ leader(state_timeout,_From , _Data) ->
 
 leader(cast,{update_value,{Key,Value}},_From) ->
     io:format("cast update_value in leader Key: ~p, Value: ~p ~n", [Key,Value]),
-    put(Key,Value),
+    if
+        Key == targets ->
+            io:format("Drone ~p :update targets to ~p~n",[get(id),Value]),
+            case get(targets) of
+                undefined ->
+                    put(targets,[Value]);
+                Exsiting_targets ->
+                    put(targets,Exsiting_targets ++ [Value])
+            end;
+        true ->
+            put(Key,Value)
+    end,
     {keep_state,[]};
 
 leader(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
     replace_dead_neighbour(Reborn_ID, New_PID),
     {keep_state,[]};
 
+
 leader(_Event, _From, _Data) ->
     io:format("unknown event ~p in leader~n", [_Event]),
     {keep_state, _Data, [{state_timeout, ?TIMEOUT, time_tick}]}.
 
+%%%===================================================================
+%%%target functions
+
+% circle(Event, Target, From) ->
+%     Distance_to_target = get_distance({Target,0}, get(location)),
+%     case Distance_to_target>= ?SERACH_RADIUS of
+%         false  ->
+%             Theta_to_target = get_theta_to_wp(),
+%             step(circle),
+%             put(counter,50);
+%         true ->
+%             io:format("Drone ~p :target ~p reached~n",[get(id),Target]),
+%             gen_statem:reply(From, ok),
+            
+%     end,
+
+%     {keep_state, Target,[{state_timeout, 50*?TIMEOUT, original_state}]}.
 
 %%%===================================================================
 %%% Internal functions
@@ -368,6 +419,8 @@ cross_border(Location) ->
 
 
 
+
+
 get_value(Key, [{Key, Value} | _]) ->
     Value;
 get_value(Key, [_ | Rest]) ->
@@ -377,3 +430,19 @@ get_value(_, []) ->
 
 
 
+look_for_target() ->
+    look_for_target(get(targets),get(location)).
+
+look_for_target([],_)->
+    ok;
+look_for_target([Target|Rest],Location)-> 
+    Distance = get_distance({Location,0},Target),
+    case  Distance =< ?SERACH_RADIUS of
+        true ->
+            io:format("Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target~n"),
+            io:format("Drone ~p has reached target at location:~p ~n",[get(id),Target]);
+            % {next_state,circle,Target}:
+        false ->
+            ok
+    end,
+    look_for_target(Rest,Location).

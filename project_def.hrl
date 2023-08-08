@@ -11,3 +11,4 @@
 -define(TIMEOUT, 100).
 -define(INDENTATION,{0,20}).
 -define(STEP_SIZE,1).
+-define(SERACH_RADIUS,15).

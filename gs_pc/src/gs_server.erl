@@ -126,9 +126,14 @@ handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
     New_State = send_to_gui(Drone, State),
     {noreply, New_State};
 
+handle_cast({aquire_target,Target}, State) ->
+    io:format("Aquiring targets: ~p~n", [Target]),
+    [send_to_drone(ID, {targets, Target}) || ID <- lists:seq(0,State#state.num_of_drones-1)],%% sends target one at a time only the drone has a list of targets
+    {noreply, State};
+
 
 handle_cast({id_pid_update,ID_PID_LIST}, State) ->
-    io:format("ID PID update: ~p~n", [ID_PID_LIST]),
+    % io:format("ID PID update: ~p~n", [ID_PID_LIST]),
     id_pid_insertion(ID_PID_LIST),
     {noreply, State};
 
@@ -262,7 +267,7 @@ get_value(_, []) ->
     not_found.
 
 reupdate_neighbour(Reborn_ID,New_PID) ->
-    io:format("Reupdate neighbour ~p with ~p~n",[Reborn_ID,New_PID]),
+    % io:format("Reupdate neighbour ~p with ~p~n",[Reborn_ID,New_PID]),
     case Reborn_ID >= 2 of
         false -> %means that the drone leader is the pack leader
             case ets:lookup(gs_ets,0) of
@@ -285,7 +290,7 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
 id_pid_insertion([])->
     ok;
 id_pid_insertion([{ID,PID}|T]) ->
-    io:format("inserting {~p,~p}~n",[ID,PID]),
+    % io:format("inserting {~p,~p}~n",[ID,PID]),
     ets:insert(gs_ets,{ID,PID}),
     id_pid_insertion(T).
 
