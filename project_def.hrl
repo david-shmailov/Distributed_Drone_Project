@@ -11,4 +11,7 @@
 -define(TIMEOUT, 100).
 -define(INDENTATION,{0,20}).
 -define(STEP_SIZE,1).
--define(SERACH_RADIUS,15).
+-define(SERACH_RADIUS,50).
+-define(FILE_NAME,"log.txt").
+
+

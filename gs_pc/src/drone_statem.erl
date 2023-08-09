@@ -8,7 +8,7 @@
 
 % gen_statem callbacks
 -export([init/1, terminate/3, callback_mode/0, code_change/4]).
--export([slave/3, leader/3,circle/3]).
+-export([slave/3, leader/3]).
 %circle/3
 
 
@@ -77,6 +77,7 @@ init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, B
             indentation_update()
     end,
     gen_server:cast(gs_server, {drone_update, Drone}),
+    logger([{"drone",ID},1]),
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]}.
 
 
@@ -101,11 +102,13 @@ slave(state_timeout, _From, _Data) ->
     % io:format("Drone ~p :slave state_timeout~n",[get(id)]),
     step(slave),
     {Found,Result} = look_for_target(),
+    % io:format("Drone ~p :slave state_timeout target:~p~n",[get(id),Found]),
     Check_borders = check_borders(),
     if
         Found == found_target -> 
             io:format("Drone ~p :found target ~p~n",[get(id),Result]),
             gen_server:cast(gs_server, {target_found, Result}),
+            logger([{"drone",get(id)},1]),
             {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
         Check_borders == ok->
             {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
@@ -163,14 +166,14 @@ slave(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
 %             put(targets,Exsiting_targets ++ Target_Locations)
 %         end,
 %     {keep_state,[]};
-slave(cast,{target_found,Target},_From)->
-    {next_state,circle, Target,[{state_timeout, ?TIMEOUT, Target}]};
-slave(cast,{back_to_normal,_Target},_From)->
-    put(targets,undefined),
-    {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
-slave(info,back_to_normal,_Data)->
-    put(targets,undefined),
-    {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
+% slave(cast,{target_found,Target},_From)->
+%     {next_state,circle, Target,[{state_timeout, ?TIMEOUT, Target}]};
+% slave(cast,{back_to_normal,_Target},_From)->
+%     put(targets,undefined),
+%     {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
+% slave(info,back_to_normal,_Data)->
+%     put(targets,undefined),
+%     {next_state,get(state),[],[{state_timeout, ?TIMEOUT, time_tick}]};
 
 slave(_Event, _Data, _From) -> % test
     io:format("unknown event ~p in slave~n", [_Event]),
@@ -250,22 +253,22 @@ leader(_Event, _From, _Data) ->
 %%%===================================================================
 %%%target functions
 %%%
-circle(back_to_normal,_,_)->
-    step(get(state)),
-    {next_state, get(state),[{state_timeout, ?TIMEOUT, time_tick}]};
-circle(state_timeout,Target, _From) ->
-    step(circle,Target),
-    {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]};
-circle(info,back_to_normal,_From) ->
-    put(targets,undefined),
-    {next_state, get(state),[{state_timeout, ?TIMEOUT, time_tick}]};
-circle(cast,{target_found,Target},_From) ->
-    {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]};
+% circle(back_to_normal,_,_)->
+%     step(get(state)),
+%     {next_state, get(state),[{state_timeout, ?TIMEOUT, time_tick}]};
+% circle(state_timeout,Target, _From) ->
+%     step(circle,Target),
+%     {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]};
+% circle(info,back_to_normal,_From) ->
+%     put(targets,undefined),
+%     {next_state, get(state),[{state_timeout, ?TIMEOUT, time_tick}]};
+% circle(cast,{target_found,Target},_From) ->
+%     {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]};
 
 
-circle(Event, Target, From) ->
-    io:format("unknown event ~p in circle~n", [Event]),
-    {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]}.
+% circle(Event, Target, From) ->
+%     io:format("unknown event ~p in circle~n", [Event]),
+%     {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]}.
 
 %%%===================================================================
 %%% Internal functions
@@ -391,7 +394,7 @@ step(circle,{X,Y})->
         false ->
             {X1,Y1}=get(location),
             Current_angle = math:atan2(X1-X,Y1-Y),
-            New_angle = Current_angle + math:pi()/6,
+            New_angle = Current_angle + math:pi()/20,
             Next_WP = {X+?SERACH_RADIUS*math:cos(New_angle),Y+?SERACH_RADIUS*math:sin(New_angle)},
             put(waypoint,{Next_WP,0}),
             Theta = get_theta_to_wp(),
@@ -413,16 +416,19 @@ update_neighbors([], _, _) ->
 update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
     try
         % io:format("calling ~p~n",[PID]),
+        logger([{"drone",get(id)},1]),
         gen_statem:call(PID, {vector_update, {Location,Theta}}), % returns call dirty after returning to GS1 from GS4 and trying to update
         update_neighbors(T, Location, Theta)
     catch
         exit:{noproc, _} ->
             io:format("Requesting new PID~n"),
+            logger([{"drone",get(id)},1]),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
             update_neighbors([New_PID | T], Location, Theta);
         Error:Kind->
             io:format("other error ~p:~p~n",[Error,Kind]),
+            logger([{"drone",get(id)},1]),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
             update_neighbors([New_PID | T], Location, Theta)
@@ -440,7 +446,8 @@ update_gs() ->
     {{Wp_X, Wp_Y},Wp_rad} = get(waypoint),
     Wp_deg = radian_to_degree(Wp_rad),
     Waypoint = {{Wp_X, Wp_Y}, Wp_deg},
-    gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint}}).
+    gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint}}),
+    logger([{"drone",get(id)},1]).
 
 check_borders() ->
     Border_record = get(borders),
@@ -464,6 +471,7 @@ cross_border(Location) ->
     % gen_server:call and grab the reply
     % returns 'ok' or 'terminate' atom
     % io:format("Crossing border and my neighbours are~p~n",[Dict]),
+    logger([{"drone",get(id)},1]),
     gen_server:call(gs_server, {crossing_border, get(id), Location,Dict}, infinity).
 
     % {stop,normal,Location}.
@@ -482,7 +490,7 @@ get_value(_, []) ->
 
 
 look_for_target() ->
-    case get(target) of
+    case get(targets) of
         undefined ->
             {not_found,ok};
         Target ->
@@ -493,6 +501,7 @@ look_for_target([],_)->
     {not_found,ok};
 look_for_target([Target|Rest],Location)-> 
     Distance = get_distance({Location,0},Target),
+    io:format("Distance to target is ~p~n",[Distance]),
     case  Distance =< ?SERACH_RADIUS of
         true ->
             io:format("Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target~n"),
@@ -501,4 +510,9 @@ look_for_target([Target|Rest],Location)->
         false ->
             look_for_target(Rest,Location)
     end.
-    
+
+logger(Message) ->
+    {ok,File}=file:open(?FILE_NAME, [append]),
+    {_,Time}= calendar:local_time(),
+    io:format(File, "~p~n", [Message++[Time]]),
+    file:close(File).
