@@ -3,7 +3,7 @@
 -include("../project_def.hrl").
 -behaviour(gen_server).
 
--export([start_link/1]).
+-export([start_link/2]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -13,26 +13,19 @@
          terminate/2,
          code_change/3]).
 
--record(state, {out_port, in_port}).
+-record(state, {out_port, in_port, input_socket = undefined}).
 
 
-start_link(Port) ->
-    gen_server:start_link({local, ?MODULE}, ?MODULE, [Port], []).
-
-
-
-init([Port]) ->
-    {ok, #state{out_port = Port}}.
+start_link(Port_erl2py,Port_py2erl) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [Port_erl2py,Port_py2erl], []).
 
 
 
+init([Port_erl2py,Port_py2erl]) ->
+    {ok, Socket} = open_socket_for_listener(Port_py2erl),
+    {ok, #state{out_port = Port_erl2py, in_port = Port_py2erl, input_socket = Socket}}.
 
-init_tables() ->
-    GS1_ETS = ets:new(gs1_ets, [named_table, public, {write_concurrency, true}]),
-    GS2_ETS = ets:new(gs2_ets, [named_table, public, {write_concurrency, true}]),
-    GS3_ETS = ets:new(gs3_ets, [named_table, public, {write_concurrency, true}]),
-    GS4_ETS = ets:new(gs4_ets, [named_table, public, {write_concurrency, true}]), % Todo figure out if you really need write_concurrency
-    {GS1_ETS, GS2_ETS, GS3_ETS, GS4_ETS}.
+
 
 
 % send_message_to_gs(Message) ->
@@ -57,10 +50,20 @@ handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
 
+
+handle_info({udp, Socket, _Host, _Port, Data}, #state{input_socket = Socket} = State) ->
+    io:format("Received: ~p~n", [Data]),
+    {noreply, State};
+
+
 handle_info(_Info, State) ->
+    io:format("Unknown info: ~p~n", [_Info]),
     {noreply, State}.
 
-terminate(_Reason, _State) ->
+terminate(_Reason, #state{input_socket = Socket}) ->
+    if Socket =/= undefined ->
+        gen_udp:close(Socket)
+    end,
     ok.
 
 
@@ -111,3 +114,19 @@ send_to_gui(Data, #state{out_port = Port}) ->
     {ok, Socket} = gen_udp:open(0),
     gen_udp:send(Socket, "localhost", Port, Data),
     gen_udp:close(Socket).
+
+
+
+
+open_socket_for_listener(In_Port) ->
+    % Open a port to the python listener
+    {ok, _Socket} = gen_udp:open(In_Port, [binary, {active,true}]).
+
+
+
+init_tables() ->
+    GS1_ETS = ets:new(gs1_ets, [named_table, public, {write_concurrency, true}]),
+    GS2_ETS = ets:new(gs2_ets, [named_table, public, {write_concurrency, true}]),
+    GS3_ETS = ets:new(gs3_ets, [named_table, public, {write_concurrency, true}]),
+    GS4_ETS = ets:new(gs4_ets, [named_table, public, {write_concurrency, true}]), % Todo figure out if you really need write_concurrency
+    {GS1_ETS, GS2_ETS, GS3_ETS, GS4_ETS}.

@@ -79,14 +79,15 @@ class DoubleStream(QtCore.QObject):
         pass
 
 class DroneGridApp(QMainWindow):
-    def __init__(self, port):
+    def __init__(self, in_port, out_port):
         super().__init__()
         self.GUI_folder = os.path.dirname(__file__)
         # Load the UI at runtime
         uic.loadUi(f'{self.GUI_folder}/gui_frontend.ui', self)
         # Redirect stdout to the text edit
         sys.stdout = DoubleStream(self.console)
-        self.port = port
+        self.in_port = in_port
+        self.out_port = out_port
         self.scene = None
         self.draw_scene()
         self.drone_icon_size = 10
@@ -94,7 +95,7 @@ class DroneGridApp(QMainWindow):
         self.connect_signals()
 
         # Start the socket listener
-        self.RT_socket_listener = SocketListener(self.port)
+        self.RT_socket_listener = SocketListener(self.in_port)
         self.RT_socket_listener.droneUpdate.connect(self.update_drone)
         self.RT_socket_listener.start()
 
@@ -103,7 +104,8 @@ class DroneGridApp(QMainWindow):
         self.TG_Thread.time_tick_signal.connect(self.move_drones_slot)
         self.TG_Thread.start()
 
-
+    def connect_signals(self):
+        self.launchButton.clicked.connect(self.launch_drones_slot)
 
     def closeEvent(self, event):
         if hasattr(self, 'move_thread'):
@@ -144,12 +146,9 @@ class DroneGridApp(QMainWindow):
         # Drawing the horizontal line
         self.scene.addLine(0, SIZE / 2, SIZE, SIZE / 2)  # From (0, SIZE/2) to (SIZE, SIZE/2)
 
-    def connect_signals(self):
-        self.launchButton.clicked.connect(self.launch_button_clicked)
 
 
-    def launch_button_clicked(self):
-        pass
+
 
     def add_drone(self, drone_id):
         triangle = create_triangle(self.drone_icon_size)
@@ -213,6 +212,14 @@ class DroneGridApp(QMainWindow):
             y = drone['location'][1] + speed * math.sin(theta)
             self.move_drone(drone_id, x, y, angle, speed)
 
+    @QtCore.pyqtSlot()
+    def launch_drones_slot(self):
+        self.send_data_to_erl_node('launch_drones')
+
+    def send_data_to_erl_node(self, data):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.sendto(data.encode('utf-8'), ('localhost', self.out_port))
+
 
 def convert_to_scene_coordinates(y):
     return -y + SIZE
@@ -240,11 +247,14 @@ def create_star(size):
 if __name__ == '__main__':
     # argument parser
     parser = argparse.ArgumentParser(description='Drone GUI')
-    parser.add_argument('--port', type=int, default=8000, help='port number for communication with gui_pc erlang node',
+    parser.add_argument('--in_port', type=int, default=8000, help='port number for receiving from gui_pc erlang node',
+                        required=False)
+    parser.add_argument('--out_port', type=int, default=8001,
+                        help='port number for sending to gui_pc erlang node',
                         required=False)
     args = parser.parse_args()
     app = QApplication(sys.argv)
-    window = DroneGridApp(args.port)
+    window = DroneGridApp(args.in_port, args.out_port)
     window.show()
     # window.move_drone(1, SIZE/2, SIZE/2, 0, 1)
 
