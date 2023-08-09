@@ -136,7 +136,17 @@ handle_cast({id_pid_update,ID_PID_LIST}, State) ->
     % io:format("ID PID update: ~p~n", [ID_PID_LIST]),
     id_pid_insertion(ID_PID_LIST),
     {noreply, State};
-
+handle_cast({target_found,Target}, State) ->
+    io:format("Target found~n"),
+    [fun(ID)-> case ets:lookup(gs_ets, ID) of
+                    [{ID, PID}] ->
+                        gen_server:cast(PID, {target_found,Target}),
+                        erlang:send_after(50*?TIMEOUT,PID,back_to_normal);
+                    [] ->
+                        ok
+                end
+        end(ID) || ID <- lists:seq(0,State#state.num_of_drones-1)],
+    {noreply, State};
 
 
 handle_cast(_Msg, State) ->

@@ -32,7 +32,7 @@ start(_StartType, _StartArgs) ->
             gen_server:call(gs_server, set_followers),
             gen_server:call(gs_server, {set_waypoints, [ {{?WORLD_SIZE/4,?WORLD_SIZE/4}, 0}, {{?WORLD_SIZE/4,3*?WORLD_SIZE/4}, 0}, {{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4},0},
             {{3*?WORLD_SIZE/4,?WORLD_SIZE/4},0},{{?WORLD_SIZE-100,?WORLD_SIZE-100},0},{{100,100},0}]}),
-            gen_server:cast(gs_server,{aquire_target,{?WORLD_SIZE/3,?WORLD_SIZE/2+100}});
+            gen_server:cast(gs_server,{aquire_target,{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4}});
         _ ->
             ok
     end,
