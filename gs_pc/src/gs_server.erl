@@ -130,9 +130,9 @@ handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
     New_State = send_to_gui(Drone, State),
     {noreply, New_State};
 
-handle_cast({aquire_target,Target}, State) ->
-    io:format("Aquiring targets: ~p~n", [Target]),
-    [send_to_drone(ID, {targets, Target}) || ID <- lists:seq(0,State#state.num_of_drones-1)],%% sends target one at a time only the drone has a list of targets
+handle_cast({aquire_target,Targets}, State) ->
+    io:format("Aquiring targets: ~p~n", [Targets]),
+    [send_to_drone(ID, {targets, Targets}) || ID <- lists:seq(0,State#state.num_of_drones-1)],%% sends target one at a time only the drone has a list of targets
     {noreply, State};
 
 
@@ -140,17 +140,12 @@ handle_cast({id_pid_update,ID_PID_LIST}, State) ->
     % io:format("ID PID update: ~p~n", [ID_PID_LIST]),
     id_pid_insertion(ID_PID_LIST),
     {noreply, State};
+
 handle_cast({target_found,Target}, State) ->
     io:format("Target found~n"),
-    [fun(ID)-> case ets:lookup(gs_ets, ID) of
-                    [{ID, PID}] ->
-                        logger([{"gs_server",node()},1]),
-                        gen_server:cast(PID, {target_found,Target}),
-                        erlang:send_after(50*?TIMEOUT,PID,back_to_normal);
-                    [] ->
-                        ok
-                end
-        end(ID) || ID <- lists:seq(0,State#state.num_of_drones-1)],
+    List_of_PIDs=[ets:lookup(gs_ets,ID)||ID <- lists:seq(1,State#state.num_of_drones-1-1)],
+    [gen_statem:cast(PID,{target_found,Target})|| [{ID,PID}] <- List_of_PIDs,ID =/= 0],
+    append_circle_to_leader(Target),
     {noreply, State};
 
 
@@ -331,3 +326,16 @@ logger(Message) ->
     {_,Time}= calendar:local_time(),
     io:format(File, "~p~n", [Message++[Time]]),
     file:close(File).
+append_circle_to_leader({X,Y})->
+    Result = ets:lookup(gs_ets,{X,Y}),
+    case Result of
+        [{{X,Y},target_found}]->
+            ok;
+        []->
+            ets:insert(gs_ets,{{X,Y},target_found}),
+            [{0,Leader_PID}] = ets:lookup(gs_ets,0),
+            List_Of_Points = [{{X+?SERACH_RADIUS*math:cos(Theta),Y+?SERACH_RADIUS*math:sin(Theta)},circle} || Theta <- [math:pi()*K/8|| K <- lists:seq(0,16)]],
+            gen_statem:cast(Leader_PID,{append_circle,List_Of_Points})
+        end.
+
+    

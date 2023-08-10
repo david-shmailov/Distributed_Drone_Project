@@ -166,8 +166,11 @@ slave(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
 %             put(targets,Exsiting_targets ++ Target_Locations)
 %         end,
 %     {keep_state,[]};
-% slave(cast,{target_found,Target},_From)->
-%     {next_state,circle, Target,[{state_timeout, ?TIMEOUT, Target}]};
+slave(cast,{target_found,Target},_From)->
+    Current_targets = get(targets),
+    Next_targets = lists:delete(Target,Current_targets),
+    put(targets,Next_targets),
+    {keep_state,[]};
 % slave(cast,{back_to_normal,_Target},_From)->
 %     put(targets,undefined),
 %     {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
@@ -236,15 +239,28 @@ leader(cast,{update_value,{Key,Value}},_From) ->
     end,
     {keep_state,[]};
 
+leader(cast,{append_circle, [H|_]=List},_From) when is_list(List)->
+    Way_points = get(waypoints_stack),
+    case get(waypoints_stack) of
+        undefined ->
+            put(waypoints_stack,List);
+        Exsiting_waypoints ->
+            {Location,_} = H,
+            Current_WP = get(waypoint),
+            put(waypoint,{Location,get_theta_to_wp()}),
+            put(waypoints_stack,List ++ [Current_WP]++Exsiting_waypoints)
+    end,
+    {keep_state,[]};
+
 leader(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
     replace_dead_neighbour(Reborn_ID, New_PID),
     {keep_state,[]};
-leader(cast,{target_found,Target},_From)->
-    {next_state,circle,[{state_timeout, ?TIMEOUT, Target}]};
-leader(cast,{back_to_normal,_Target},_From)->
-    put(targets,[]),
-    next_waypoint(),
-    {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
+% leader(cast,{target_found,Target},_From)->
+%     {next_state,circle,[{state_timeout, ?TIMEOUT, Target}]};
+% leader(cast,{back_to_normal,_Target},_From)->
+%     put(targets,[]),
+%     next_waypoint(),
+%     {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
 
 leader(_Event, _From, _Data) ->
     io:format("unknown event ~p in leader~n", [_Event]),
@@ -285,7 +301,11 @@ next_waypoint() ->%%that function is only for leader state
         undefined ->
             ok;
         [] -> io:format("FORBIDDEN CASE - waypoints_stack is empty~n");
-        [H|T] ->
+        [{Location,K}|T] when is_atom(K)->
+            put(waypoints_stack,T),
+            put(waypoint,{Location,K}),
+            put(theta, get_theta_to_wp());
+        [{_,K}=H|T] when is_number(K) ->
             put(waypoints_stack, T ++ [H]),
             put(waypoint, H),
             put(theta, get_theta_to_wp())
@@ -404,6 +424,8 @@ step(circle,{X,Y})->
     end.
 
 
+radian_to_degree(Radian) when is_atom(Radian)->
+    radian_to_degree(get(theta));
 radian_to_degree(Radian) ->
     DegreesFloat = Radian * (180/math:pi()),
     round(DegreesFloat).
