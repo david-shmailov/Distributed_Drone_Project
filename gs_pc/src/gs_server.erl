@@ -19,6 +19,29 @@
 
 % record for drone location and speed update:
 
+get_node_to_monitor() ->
+        {ok,Number} = extract_number(node()),
+    case Number of
+        1 ->
+            Node_to_monitor = 'gs2@localhost';
+        2 ->
+            Node_to_monitor = 'gs3@localhost';
+        3 ->
+            Node_to_monitor = 'gs4@localhost';
+        4 ->
+            Node_to_monitor = 'gs1@localhost'
+    end,
+    Node_to_monitor.
+start_monitor()->
+    Node_to_monitor = get_node_to_monitor(),
+    case net_adm:ping(Node_to_monitor) of
+        pong ->
+            io:format("Node ~p is up~n",[Node_to_monitor]),
+            monitor_node(Node_to_monitor,true);
+        pang ->
+            start_monitor()
+    end.
+
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
@@ -26,6 +49,7 @@ start_link() ->
 
 
 init([]) ->
+    start_monitor(),
     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
     {ok,GS_ID} = extract_number(node()),
     {Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
@@ -157,6 +181,18 @@ handle_cast(Message, State) when is_record(Message, log_message) ->
 handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
+
+handle_info({nodedown, Node}, State) ->
+    io:format("Node ~p went down!~n", [Node]),
+    %% Handle the node down event as needed
+    Node_to_monitor = atom_to_list(Node),
+    Command = "rebar3 shell --sname "++Node_to_monitor++" --setcookie cookie",
+    Return_cd = os:cmd("cd /home/neriyai/Erlang-Project/gs_pc"),
+    Return_val =os:cmd(Command),
+    io:format("Return_cd :~p~nReturn value: ~p~n", [Return_cd,Return_val]),
+    start_monitor(),
+    {noreply, State};
+
 
 handle_info(_Info, State) ->
     {noreply, State}.
