@@ -19,7 +19,7 @@
 
 % record for drone location and speed update:
 
-get_node_to_monitor() ->
+get_node_to_monitor() -> % todo try to generelize
         {ok,Number} = extract_number(node()),
     case Number of
         1 ->
@@ -70,7 +70,7 @@ handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
     Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2-100,?WORLD_SIZE/2+100}}, Borders)} || Id <- lists:seq(0,Num-1)],
     Drones_ID_updated = [{Id,PID} || {Id,{ok,PID}} <- Drones_ID],
-    logger([{"gs_server",node()},3]),
+    logger("3"),
     [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
@@ -111,7 +111,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
                 {ok, New_PID} -> 
                     io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
                     ets:insert(gs_ets, {ID, New_PID}),
-                    logger([{"gs_server",node()},3]),
+                    logger("3"),
                     [gen_server:cast({gs_server,Server},{id_pid_update,[{ID,New_PID}]})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node(),Server =/= Next_GS],
                     reupdate_neighbour(ID,New_PID),
                     {reply, terminate, State}; % terminate the old drone
@@ -186,11 +186,11 @@ handle_info({nodedown, Node}, State) ->
     io:format("Node ~p went down!~n", [Node]),
     %% Handle the node down event as needed
     Node_to_monitor = atom_to_list(Node),
-    Command = "rebar3 shell --sname "++Node_to_monitor++" --setcookie cookie",
-    Return_cd = os:cmd("cd /home/neriyai/Erlang-Project/gs_pc"),
-    Return_val =os:cmd(Command),
-    io:format("Return_cd :~p~nReturn value: ~p~n", [Return_cd,Return_val]),
-    start_monitor(),
+    % Command = "rebar3 shell --sname "++Node_to_monitor++" --setcookie cookie",
+    % Return_cd = os:cmd("cd /home/neriyai/Erlang-Project/gs_pc"),
+    % Return_val =os:cmd(Command),
+    % io:format("Return_cd :~p~nReturn value: ~p~n", [Return_cd,Return_val]),
+    % start_monitor(),
     {noreply, State};
 
 
