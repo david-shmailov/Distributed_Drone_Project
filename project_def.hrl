@@ -8,10 +8,11 @@
 -record(drone, {id, location, theta=0, speed=0, next_waypoint={{0,0},0}}).
 -record(borders, {left, right, top, bottom}).
 -record(mnesia_record, {id, pid}).
+-record(log_message, {time, source, message}).
 -define(TIMEOUT, 100).
 -define(INDENTATION,{0,20}).
 -define(STEP_SIZE,1).
 -define(SERACH_RADIUS,50).
--define(FILE_NAME,"log.txt").
+-define(LOG_NAME,"log.txt").
 
 

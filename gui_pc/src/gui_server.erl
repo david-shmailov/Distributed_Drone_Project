@@ -13,7 +13,7 @@
          terminate/2,
          code_change/3]).
 
--record(state, {out_port, in_port, input_socket = undefined}).
+-record(state, {out_port, in_port, input_socket = undefined, log_fd = undefined}).
 
 
 start_link(Port_erl2py,Port_py2erl) ->
@@ -23,7 +23,8 @@ start_link(Port_erl2py,Port_py2erl) ->
 
 init([Port_erl2py,Port_py2erl]) ->
     {ok, Socket} = open_socket_for_listener(Port_py2erl),
-    {ok, #state{out_port = Port_erl2py, in_port = Port_py2erl, input_socket = Socket}}.
+    {ok, File}=file:open(?LOG_NAME, [write]),
+    {ok, #state{out_port = Port_erl2py, in_port = Port_py2erl, input_socket = Socket, log_fd = File}}.
 
 
 
@@ -46,6 +47,11 @@ handle_cast({drone_update, Stack}, State) ->
     send_stack_to_gui(Stack, State),
     {noreply, State};
 
+handle_cast(Message, #state{log_fd=File}=State)  when is_record(Message, log_message)->
+    io:format(File, "~p~n", [Message]),
+    {noreply, State};
+
+
 handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
@@ -60,9 +66,12 @@ handle_info(_Info, State) ->
     io:format("Unknown info: ~p~n", [_Info]),
     {noreply, State}.
 
-terminate(_Reason, #state{input_socket = Socket}) ->
+terminate(_Reason, #state{input_socket = Socket, log_fd = File}) ->
     if Socket =/= undefined ->
         gen_udp:close(Socket)
+    end,
+    if File =/= undefined ->
+        file:close(File)
     end,
     ok.
 
@@ -114,6 +123,7 @@ send_to_gui(Data, #state{out_port = Port}) ->
     {ok, Socket} = gen_udp:open(0),
     gen_udp:send(Socket, "localhost", Port, Data),
     gen_udp:close(Socket).
+
 
 
 

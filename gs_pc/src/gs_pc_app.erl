@@ -32,9 +32,6 @@ start(_StartType, _StartArgs) ->
             gen_server:call(gs_server, set_followers),
             gen_server:call(gs_server, {set_waypoints, [ {{?WORLD_SIZE/4,?WORLD_SIZE/4}, 0}, {{?WORLD_SIZE/4,3*?WORLD_SIZE/4}, 0}, {{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4},0},
             {{3*?WORLD_SIZE/4,?WORLD_SIZE/4},0}]}),
-            {ok,File}=file:open(?FILE_NAME,[write]),
-            io:format(File,"~s~n",["number of drones:30"]),
-            file:close(File),
             gen_server:cast(gs_server,{aquire_target,{?WORLD_SIZE/2-100,?WORLD_SIZE/2+100}}),
             gen_server:cast(gs_server, {aquire_target,{3*?WORLD_SIZE/4,3*?WORLD_SIZE/4}});
         _ ->

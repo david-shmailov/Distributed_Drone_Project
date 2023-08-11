@@ -77,7 +77,7 @@ init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, B
             indentation_update()
     end,
     gen_server:cast(gs_server, {drone_update, Drone}),
-    logger([{"drone",ID},1]),
+    logger("1"),
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]}.
 
 
@@ -108,7 +108,7 @@ slave(state_timeout, _From, _Data) ->
         Found == found_target -> 
             io:format("Drone ~p :found target ~p~n",[get(id),Result]),
             gen_server:cast(gs_server, {target_found, Result}),
-            logger([{"drone",get(id)},1]),
+            logger("1"),
             {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
         Check_borders == ok->
             {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
@@ -438,19 +438,19 @@ update_neighbors([], _, _) ->
 update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
     try
         % io:format("calling ~p~n",[PID]),
-        logger([{"drone",get(id)},1]),
+        logger("1"),
         gen_statem:call(PID, {vector_update, {Location,Theta}}), % returns call dirty after returning to GS1 from GS4 and trying to update
         update_neighbors(T, Location, Theta)
     catch
         exit:{noproc, _} ->
             io:format("Requesting new PID~n"),
-            logger([{"drone",get(id)},1]),
+            logger("1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
             update_neighbors([New_PID | T], Location, Theta);
         Error:Kind->
             io:format("other error ~p:~p~n",[Error,Kind]),
-            logger([{"drone",get(id)},1]),
+            logger("1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
             update_neighbors([New_PID | T], Location, Theta)
@@ -469,7 +469,7 @@ update_gs() ->
     Wp_deg = radian_to_degree(Wp_rad),
     Waypoint = {{Wp_X, Wp_Y}, Wp_deg},
     gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint}}),
-    logger([{"drone",get(id)},1]).
+    logger("1").
 
 check_borders() ->
     Border_record = get(borders),
@@ -493,7 +493,7 @@ cross_border(Location) ->
     % gen_server:call and grab the reply
     % returns 'ok' or 'terminate' atom
     % io:format("Crossing border and my neighbours are~p~n",[Dict]),
-    logger([{"drone",get(id)},1]),
+    logger("1"),
     gen_server:call(gs_server, {crossing_border, get(id), Location,Dict}, infinity).
 
     % {stop,normal,Location}.
@@ -526,7 +526,6 @@ look_for_target([Target|Rest],Location)->
     io:format("Distance to target is ~p~n",[Distance]),
     case  Distance =< ?SERACH_RADIUS of
         true ->
-            io:format("Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target*Target~n"),
             io:format("Drone ~p has reached target at location:~p ~n",[get(id),Target]),
             {found_target,Target};
         false ->
@@ -534,7 +533,8 @@ look_for_target([Target|Rest],Location)->
     end.
 
 logger(Message) ->
-    {ok,File}=file:open(?FILE_NAME, [append]),
-    {_,Time}= calendar:local_time(),
-    io:format(File, "~p~n", [Message++[Time]]),
-    file:close(File).
+    {_,Time} = calendar:local_time(),
+    % make a string of "drone" and Id
+    Name = lists:flatten(io_lib:format("drone ~p",[get(id)])),
+    Log = #log_message{time=Time, source = Name, message = Message},
+    gen_server:cast(gs_server, Log).

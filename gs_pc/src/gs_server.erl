@@ -29,7 +29,7 @@ init([]) ->
     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
     {ok,GS_ID} = extract_number(node()),
     {Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
-    logger([{"gs_server",node()},1]),
+    logger("1"),
     gen_server:call({?GUI_SERVER, ?GUI_NODE}, {establish_comm, self()}),
     {ok, #state{gs_id = GS_ID, data_stack=[], borders = Borders, neighbors= Neighbors}}.
 
@@ -82,7 +82,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
             {reply, ok, State};
         Next_GS ->
             io:format("Drone ~p is crossing border~n", [ID]),
-            logger([{"gs_server",node()},1]),
+            logger("1"),
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
                 {ok, New_PID} -> 
                     io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
@@ -149,6 +149,10 @@ handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State
     append_circle_to_leader(Target),
     {noreply, State};
 
+
+handle_cast(Message, State) when is_record(Message, log_message) ->
+    gen_server:cast({?GUI_SERVER, ?GUI_NODE}, Message),
+    {noreply, State};
 
 handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
@@ -220,7 +224,7 @@ send_to_drone(ID, {Key,Value}) ->
     io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
     case ets:lookup(gs_ets, ID) of
         [{ID, PID}] ->
-            logger([{"gs_server",node()},1]),
+            logger("1"),
             gen_statem:cast(PID, {update_value, {Key,Value}});
         [] ->
             io:format("Drone ~p not found~n", [ID])
@@ -263,7 +267,7 @@ send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
     if  
         length(Stack) >= ?STACK_SIZE ->
             % io:format("Stack is full~n"), % debug
-            logger([{"gs_server",node()},1]),
+            logger("1"),
             gen_server:cast({?GUI_SERVER, ?GUI_NODE} , {drone_update, [Drone|Stack]}),
             State#state{data_stack = []};
         true ->
@@ -285,7 +289,7 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
         false -> %means that the drone leader is the pack leader
             case ets:lookup(gs_ets,0) of
                 [{0, PID}] ->
-                    logger([{"gs_server",node()},1]),
+                    logger("1"),
                     gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
                 [] ->
                     {error, not_found}
@@ -294,7 +298,7 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
             Leader = Reborn_ID -2,
             case ets:lookup(gs_ets,Leader) of
                 [{Leader, PID}] ->
-                    logger([{"gs_server",node()},1]),
+                    logger("1"),
                     gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
                 [] ->
                     {error, not_found}
@@ -323,10 +327,12 @@ id_pid_insertion([{ID,PID}|T]) ->
 %     mnesia:transaction(fun() -> mnesia:write(database, #mnesia_record{id = ID, pid = PID}, write) end).
 
 logger(Message) ->
-    {ok,File}=file:open(?FILE_NAME, [append]),
-    {_,Time}= calendar:local_time(),
-    io:format(File, "~p~n", [Message++[Time]]),
-    file:close(File).
+    {_,Time} = calendar:local_time(),
+    % make a string of "drone" and Id
+    Name = lists:flatten(io_lib:format("gs_server gs~p",[extract_number(node())])),
+    Log = #log_message{time=Time, source = Name, message = Message},
+    gen_server:cast({?GUI_SERVER, ?GUI_NODE} , Log).
+
 append_circle_to_leader({X,Y})->
     Result = ets:lookup(gs_ets,{X,Y}),
     case Result of
