@@ -139,11 +139,12 @@ handle_cast({aquire_target,Targets}, State) ->
 handle_cast({id_pid_update,ID_PID_LIST}, State) ->
     % io:format("ID PID update: ~p~n", [ID_PID_LIST]),
     id_pid_insertion(ID_PID_LIST),
-    {noreply, State};
+    Num_of_drones = length(ID_PID_LIST),
+    {noreply, State#state{num_of_drones = Num_of_drones}};
 
-handle_cast({target_found,Target}, State) ->%%%TODO : figure out how to get the number of drones or different way to do it
+handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->%%%TODO : figure out how to get the number of drones or different way to do it
     io:format("Target found~n"),
-    List_of_PIDs=[ets:lookup(gs_ets,ID)||ID <- lists:seq(1,State#state.num_of_drones-1-1)],
+    List_of_PIDs=[ets:lookup(gs_ets,ID)||ID <- lists:seq(1,Num_of_drones-1)],
     [gen_statem:cast(PID,{target_found,Target})|| [{ID,PID}] <- List_of_PIDs,ID =/= 0],
     append_circle_to_leader(Target),
     {noreply, State};
