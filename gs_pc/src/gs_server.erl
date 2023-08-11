@@ -49,7 +49,7 @@ start_link() ->
 
 
 init([]) ->
-    start_monitor(),
+    % start_monitor(),
     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
     {ok,GS_ID} = extract_number(node()),
     {Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
@@ -74,6 +74,7 @@ handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
+    set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
 
 
@@ -82,12 +83,6 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
     send_to_drone(0, {waypoints_stack, Waypoints}),
     {reply, ok, State};
 
-handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
-    io:format("Setting followers~n"),
-    Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
-    Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
-    [send_to_drone(ID, {followers, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)],
-    {reply, ok, State};
 
 
 
@@ -253,7 +248,11 @@ check_borders({X,Y}, #state{borders = Borders, neighbors = Neighbors}) ->
     end.
 
 
-
+set_followers(Num) ->
+    io:format("Setting followers~n"),
+    Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
+    Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
+    [send_to_drone(ID, {followers, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)].
 
 
 send_to_drone(ID, {Key,Value}) ->

@@ -105,7 +105,8 @@ class DroneGridApp(QMainWindow):
         self.TG_Thread.start()
 
     def connect_signals(self):
-        self.launchButton.clicked.connect(self.launch_drones_slot)
+        self.launch_button.clicked.connect(self.launch_drones_slot)
+        self.set_waypoints_button.clicked.connect(self.set_waypoints_slot)
 
     def closeEvent(self, event):
         if hasattr(self, 'move_thread'):
@@ -147,9 +148,6 @@ class DroneGridApp(QMainWindow):
         self.scene.addLine(0, SIZE / 2, SIZE, SIZE / 2)  # From (0, SIZE/2) to (SIZE, SIZE/2)
 
 
-
-
-
     def add_drone(self, drone_id):
         triangle = create_triangle(self.drone_icon_size)
         drone_item = QtWidgets.QGraphicsPolygonItem(triangle)
@@ -189,8 +187,6 @@ class DroneGridApp(QMainWindow):
 
 
 
-
-
     # slots
 
     @QtCore.pyqtSlot(str)
@@ -214,7 +210,19 @@ class DroneGridApp(QMainWindow):
 
     @QtCore.pyqtSlot()
     def launch_drones_slot(self):
-        self.send_data_to_erl_node('launch_drones')
+        GS = 'gs1@localhost'
+        Number_of_drones = self.num_of_drones_box.value()
+        dic = {'launch_drones': f'{GS} {Number_of_drones}'}
+        self.send_data_to_erl_node(str(dic))
+
+    @QtCore.pyqtSlot()
+    def set_waypoints_slot(self):
+        waypoints = [(SIZE/ 4, SIZE / 4), (SIZE / 4, 3 * SIZE / 4), (3 * SIZE / 4, 3 * SIZE / 4), (3 * SIZE / 4, SIZE / 4)]
+        for wp in waypoints:
+            dic = {'add_waypoint': wp}
+            self.send_data_to_erl_node(str(dic))
+        self.send_data_to_erl_node(str({'set_waypoints': ''}))
+
 
     def send_data_to_erl_node(self, data):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:

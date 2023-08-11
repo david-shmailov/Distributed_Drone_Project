@@ -13,7 +13,7 @@
          terminate/2,
          code_change/3]).
 
--record(state, {out_port, in_port, input_socket = undefined, log_fd = undefined}).
+-record(state, {out_port, in_port, input_socket = undefined, log_fd = undefined, waypoints = []}).
 
 
 start_link(Port_erl2py,Port_py2erl) ->
@@ -59,7 +59,10 @@ handle_cast(_Msg, State) ->
 
 handle_info({udp, Socket, _Host, _Port, Data}, #state{input_socket = Socket} = State) ->
     io:format("Received: ~p~n", [Data]),
-    {noreply, State};
+    % assumes Data is only one dictionary pair of python! the key should be converted to atom
+    Gui_MSG = parse_pair(binary_to_list(Data)),
+    New_state = handle_gui_msg(Gui_MSG, State),
+    {noreply, New_state};
 
 
 handle_info(_Info, State) ->
@@ -93,16 +96,57 @@ send_stack_to_gui([Drone| Rest], State) ->
 send_stack_to_gui([], _State) ->
     ok.
 
+parse_pair(String) ->
+    % Remove leading and trailing curly braces
+    Stripped = string:strip(string:strip(String, both, $}), both, ${),
 
+    % Convert each key-value pair to {key, value}
+    [KeyStr, ValueStr] = string:tokens(Stripped, ":"),
+    % extract the string between ' '
+    CleanKey = string:strip(string:strip(KeyStr, both, $'), both, $'),
+    Key = list_to_atom(CleanKey),
+    Value = string:strip(string:strip(ValueStr,both), both, $'),
+
+    {Key, Value}.
+
+handle_gui_msg({add_waypoint, Msg} , #state{waypoints = Waypoints} = State) ->
+    Pattern = "\\((\\d+\\.?\\d*)\\s*,\\s*(\\d+\\.?\\d*)\\)",
+    case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
+        {match, [Num1, Num2]} ->
+            Waypoint = {{list_to_float(Num1), list_to_float(Num2)}, 0},
+            State#state{waypoints = Waypoints ++ [Waypoint]}; % update state
+        nomatch ->
+            io:format("Invalid waypoint: ~p~n", [Msg]),
+            State % return state unchanged
+    end;
+
+
+
+handle_gui_msg({set_waypoints, _} , #state{waypoints = Waypoints} = State) ->
+    % todo change this to the gs of the leader
+    gen_server:call({gs_server, 'gs1@localhost'}, {set_waypoints, Waypoints}),
+    State#state{waypoints = []}; % empty waypoints stack
+
+
+handle_gui_msg({launch_drones, Body}, State) ->
+    [GSstr, NumStr] = string:tokens(Body, " "),
+    Num_of_drones = list_to_integer(NumStr),
+    GS = list_to_atom(GSstr),
+    gen_server:call({gs_server, GS}, {launch_drones, Num_of_drones}),
+    State;
+
+handle_gui_msg(Unknown, State) ->
+    io:format("Unknown message: ~p~n", [Unknown]),
+    State.
 
 % drone_to_binary(Drone) ->
 %     List = [Drone#drone.id] ++ tuple_to_list(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed],
 %     String = string:join([integer_to_list(X) || X <- List], ","),
 %     list_to_binary(String).
     
-drone_to_binary(Drone) ->
-    Waypoint_flat = flatten_waypoint(Drone#drone.next_waypoint),
-    List = [Drone#drone.id] ++ tuple_to_list_float(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed] ++ Waypoint_flat,
+drone_to_binary(#drone{id = ID, location= Location, theta = Theta, speed = Speed, next_waypoint = Waypoint}) ->
+    Waypoint_flat = flatten_waypoint(Waypoint),
+    List = [ID] ++ tuple_to_list_float(Location) ++ [Theta, Speed] ++ Waypoint_flat,
     String = string:join([number_to_string(X) || X <- List], ","),
     list_to_binary(String).
 
@@ -133,10 +177,3 @@ open_socket_for_listener(In_Port) ->
     {ok, _Socket} = gen_udp:open(In_Port, [binary, {active,true}]).
 
 
-
-init_tables() ->
-    GS1_ETS = ets:new(gs1_ets, [named_table, public, {write_concurrency, true}]),
-    GS2_ETS = ets:new(gs2_ets, [named_table, public, {write_concurrency, true}]),
-    GS3_ETS = ets:new(gs3_ets, [named_table, public, {write_concurrency, true}]),
-    GS4_ETS = ets:new(gs4_ets, [named_table, public, {write_concurrency, true}]), % Todo figure out if you really need write_concurrency
-    {GS1_ETS, GS2_ETS, GS3_ETS, GS4_ETS}.
