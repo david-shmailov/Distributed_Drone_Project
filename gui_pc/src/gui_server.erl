@@ -39,6 +39,12 @@ init([Port_erl2py,Port_py2erl]) ->
 
 %% gen_server callbacks
 
+handle_call({establish_comm, Node, GS_location}, _From, State) ->
+    io:format("Establishing comm with ~p~n", [Node]),
+    Command = io_lib:format("establish_comm , ~p,~p", [Node, GS_location]),
+    send_to_gui(Command ,State),
+    {reply, ok, State};
+
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
 
@@ -84,6 +90,7 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %% Internal functions
+
 
 
 send_stack_to_gui([Drone| Rest], State) ->
@@ -139,15 +146,12 @@ handle_gui_msg(Unknown, State) ->
     io:format("Unknown message: ~p~n", [Unknown]),
     State.
 
-% drone_to_binary(Drone) ->
-%     List = [Drone#drone.id] ++ tuple_to_list(Drone#drone.location) ++ [Drone#drone.theta, Drone#drone.speed],
-%     String = string:join([integer_to_list(X) || X <- List], ","),
-%     list_to_binary(String).
+
     
 drone_to_binary(#drone{id = ID, location= Location, theta = Theta, speed = Speed, next_waypoint = Waypoint}) ->
     Waypoint_flat = flatten_waypoint(Waypoint),
     List = [ID] ++ tuple_to_list_float(Location) ++ [Theta, Speed] ++ Waypoint_flat,
-    String = string:join([number_to_string(X) || X <- List], ","),
+    String = "drone," ++ string:join([number_to_string(X) || X <- List], ","),
     list_to_binary(String).
 
 tuple_to_list_float({X, Y}) ->
