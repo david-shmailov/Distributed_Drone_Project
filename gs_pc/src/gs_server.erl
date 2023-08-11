@@ -141,7 +141,7 @@ handle_cast({id_pid_update,ID_PID_LIST}, State) ->
     id_pid_insertion(ID_PID_LIST),
     {noreply, State};
 
-handle_cast({target_found,Target}, State) ->
+handle_cast({target_found,Target}, State) ->%%%TODO : figure out how to get the number of drones or different way to do it
     io:format("Target found~n"),
     List_of_PIDs=[ets:lookup(gs_ets,ID)||ID <- lists:seq(1,State#state.num_of_drones-1-1)],
     [gen_statem:cast(PID,{target_found,Target})|| [{ID,PID}] <- List_of_PIDs,ID =/= 0],
@@ -271,12 +271,12 @@ send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
     end.
 
 
-get_value(Key, [{Key, Value} | _]) ->
-    Value;
-get_value(Key, [_ | Rest]) ->
-    get_value(Key, Rest);
-get_value(_, []) ->
-    not_found.
+% get_value(Key, [{Key, Value} | _]) ->
+%     Value;
+% get_value(Key, [_ | Rest]) ->
+%     get_value(Key, Rest);
+% get_value(_, []) ->
+%     not_found.
 
 reupdate_neighbour(Reborn_ID,New_PID) ->
     % io:format("Reupdate neighbour ~p with ~p~n",[Reborn_ID,New_PID]),
