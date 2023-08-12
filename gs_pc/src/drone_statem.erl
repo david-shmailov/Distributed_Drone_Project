@@ -78,7 +78,6 @@ init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, B
             put(state,slave),
             indentation_update()
     end,
-    gen_server:cast(gs_server, {drone_update, Drone}),
     logger("1"),
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]}.
 
@@ -388,7 +387,8 @@ update_gs() ->
     {{Wp_X, Wp_Y},Wp_rad} = get(waypoint),
     Wp_deg = radian_to_degree(Wp_rad),
     Waypoint = {{Wp_X, Wp_Y}, Wp_deg},
-    gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint,gs_server=node(),time_stamp=get_time()}}),
+    gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, 
+        speed = get(speed), next_waypoint=Waypoint,gs_server=node(),time_stamp=get_time(), pid=self()}}),
     logger("1").
 
 check_borders() ->

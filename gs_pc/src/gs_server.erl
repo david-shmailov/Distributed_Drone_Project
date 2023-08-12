@@ -58,7 +58,7 @@ init([]) ->
     wait_for_gui(GS_location),
     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
     logger("1"),
-    % start_monitor(),
+    start_monitor(),
     {ok, #state{gs_id = GS_ID, data_stack=[], borders = Borders, neighbors= Neighbors, gs_location = GS_location}}.
 
 
@@ -74,7 +74,7 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location, borde
     % io:format("Launching ~p drones~n", [Num]),
     Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()} || Id <- lists:seq(0,Num-1)],
     Drones_ID = [{Id, drone_statem:start_link(Drone, Borders)} || #drone{id=Id}=Drone <- Drones_States],
-    Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,{_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
+    Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,  {_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
     logger("3"),
     [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
     % insert drone ID / PID into ETS table
@@ -152,14 +152,13 @@ handle_call(_Request, _From, State) ->
 
 
 
-handle_cast({drone_update, #drone{gs_server=GS_Server}=Drone}, State) when is_record(Drone,drone) ->
+handle_cast({drone_update, #drone{id = ID, gs_server=GS_Server}=Drone}, State) when is_record(Drone,drone) ->
     % io:format("Drone update: ~p~n", [Drone]),
-    ets:insert(gs_ets, Drone),
+    ets:insert(gs_ets, {ID, Drone}),
     Self_Node= node(),
-    Etss = ets:tab2list(gs_ets),
     if
         GS_Server == Self_Node ->
-            Nodes = ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],
+            Nodes = ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'], % todo generalize
             [gen_server:cast({gs_server,Server},{drone_update,Drone})|| Server <- Nodes,Server =/= Self_Node],
             {noreply,send_to_gui(Drone, State)};
         true->
@@ -201,13 +200,9 @@ handle_cast(_Msg, State) ->
 handle_info({nodedown, Node}, State) ->
     io:format("Node ~p went down!~n", [Node]),
     %% Handle the node down event as needed
-    Node_to_monitor = atom_to_list(Node),
-    Ets = ets:tab2list(gs_ets),
-    % Command = "rebar3 shell --sname "++Node_to_monitor++" --setcookie cookie",
-    % Return_cd = os:cmd("cd /home/neriyai/Erlang-Project/gs_pc"),
-    % Return_val =os:cmd(Command),
-    % io:format("Return_cd :~p~nReturn value: ~p~n", [Return_cd,Return_val]),
-    % start_monitor(),
+    GS_ID = extract_number(Node),
+    Lost_Drones = retrieve_all_drones(Node, State),
+    New_Borders = update_borders(GS_ID,State),
     {noreply, State};
 
 
@@ -230,6 +225,10 @@ wait_for_gui(GS_location) ->
         gen_server:call({?GUI_SERVER, ?GUI_NODE}, {establish_comm, node(), GS_location})
     catch
         exit:{{nodedown, ?GUI_NODE},_} ->
+            timer:sleep(1000),
+            io:format("GUI is down, retrying...~n"),
+            wait_for_gui(GS_location);
+        exit:{noproc, _} ->
             timer:sleep(1000),
             io:format("GUI is down, retrying...~n"),
             wait_for_gui(GS_location)
@@ -292,16 +291,20 @@ send_target_to_drone(ID, Target) ->
     send_to_drone(ID, {add_target, Target}).
 
 update_kv_in_drone(ID, Key, Value) ->
+    io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
     send_to_drone(ID, {update_value, {Key,Value}}).
 
 send_to_drone(ID, Message) ->
     % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
+    io:format("sending message ~p to drone ~p~n", [Message, ID]),
     case get_pid(ID) of
         PID when is_pid(PID) ->
             gen_statem:cast(PID, Message),
             logger("1");
         [] ->
-            io:format("ERROR Drone ~p not found~n", [ID])
+            io:format("ERROR Drone ~p not found~n", [ID]);
+        ERR ->
+            io:format("unexpected error ~p", [ERR])
     end.
 
 
@@ -392,7 +395,7 @@ id_pid_insertion([{ID,PID}|T]) ->
     % ets:insert(gs_ets,{ID,Drone}),
     id_pid_insertion(T).
 
-
+% mnesia api
 % get_pid_from_db(ID) ->
 %     case mnesia:transaction(fun() -> mnesia:read({database, ID}) end) of
 %         {atomic, [#mnesia_record{id = ID, pid = PID}]} ->
@@ -433,8 +436,8 @@ get_pid(ID)->
         [{ID,#drone{pid = PID}=_}]->
             PID;
         [] ->
-            [],
-            io:format("ERROR get_pid:Drone ~p not found~n", [ID])
+            io:format("ERROR get_pid:Drone ~p not found~n", [ID]),
+            []
     end.
 set_pid(ID,New_PID)->
     case ets:lookup(gs_ets,ID) of
@@ -457,3 +460,19 @@ drone_restore_state(ID)-> %returns the approximation of drone state
         [] ->
             io:format("restore_drone:Drone ~p not found~n", [ID])
     end.
+
+get_drone(ID)->
+    case ets:lookup(gs_ets,ID) of
+        [{ID,Drone}]->
+            Drone;
+        [] ->
+            io:format("ERROR get_pid:Drone ~p not found~n", [ID]),
+            []
+    end.
+
+retrieve_all_drones(Node, #state{num_of_drones = Nof_Drones}) ->
+    All_Drones = [get_drone(ID) || ID <- lists:seq(0,Nof_Drones-1)],
+    lists:filter(fun(Drone) -> Drone#drone.gs_server == Node end, All_Drones).
+
+
+

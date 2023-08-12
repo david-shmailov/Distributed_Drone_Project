@@ -24,6 +24,7 @@ start_link(Port_erl2py,Port_py2erl) ->
 init([Port_erl2py,Port_py2erl]) ->
     {ok, Socket} = open_socket_for_listener(Port_py2erl),
     {ok, File}=file:open(?LOG_NAME, [write]),
+    % todo use nodes() to search if existing GS already up and running prior to this one
     {ok, #state{out_port = Port_erl2py, in_port = Port_py2erl, input_socket = Socket, log_fd = File}}.
 
 

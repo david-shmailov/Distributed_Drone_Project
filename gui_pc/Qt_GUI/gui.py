@@ -197,10 +197,10 @@ class DroneGridApp(QMainWindow):
         self.scene.addLine(0, 0, 0, SIZE)  # From (0, 0) to (0, SIZE)
         self.scene.addLine(SIZE, 0, SIZE, SIZE)  # From (SIZE, 0) to (SIZE, SIZE)
         self.scene.addLine(0, SIZE, SIZE, SIZE)  # From (0, SIZE) to (SIZE, SIZE)
-        # Drawing the vertical line
-        self.scene.addLine(SIZE / 2, 0, SIZE / 2, SIZE)  # From (SIZE/2, 0) to (SIZE/2, SIZE)
-        # Drawing the horizontal line
-        self.scene.addLine(0, SIZE / 2, SIZE, SIZE / 2)  # From (0, SIZE/2) to (SIZE, SIZE/2)
+
+        self.scene.addLine(SIZE*0.25, 0, SIZE*0.25, SIZE)  # From (0, 0) to (SIZE, SIZE)
+        self.scene.addLine(SIZE*0.50, 0, SIZE*0.50, SIZE)  # From (0, 0) to (SIZE, SIZE)
+        self.scene.addLine(SIZE*0.75, 0, SIZE*0.75, SIZE)  # From (0, 0) to (SIZE, SIZE)
 
 
     def add_drone(self, drone_id):
