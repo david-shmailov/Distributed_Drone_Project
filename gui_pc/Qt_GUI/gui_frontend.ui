@@ -84,7 +84,7 @@
      <rect>
       <x>720</x>
       <y>60</y>
-      <width>91</width>
+      <width>111</width>
       <height>16</height>
      </rect>
     </property>
@@ -105,7 +105,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Launch!</string>
+     <string>Launch</string>
     </property>
    </widget>
    <widget class="QPushButton" name="set_waypoints_button">
@@ -121,7 +121,7 @@
      </rect>
     </property>
     <property name="text">
-     <string>Set Waypoints</string>
+     <string>Send Waypoints</string>
     </property>
    </widget>
    <widget class="QPushButton" name="plot_button">
@@ -134,16 +134,27 @@
      </rect>
     </property>
     <property name="styleSheet">
-     <string notr="true">QPushButton {
-    background-color: white;
-}
-QPushButton:pressed {
-    background-color: green;
-}
+     <string notr="true">
 </string>
     </property>
     <property name="text">
      <string>Plot Route</string>
+    </property>
+    <property name="checkable">
+     <bool>true</bool>
+    </property>
+   </widget>
+   <widget class="QPushButton" name="place_targets_button">
+    <property name="geometry">
+     <rect>
+      <x>720</x>
+      <y>160</y>
+      <width>81</width>
+      <height>23</height>
+     </rect>
+    </property>
+    <property name="text">
+     <string>Set Targets</string>
     </property>
     <property name="checkable">
      <bool>true</bool>

@@ -2,9 +2,9 @@ import argparse
 import os.path
 import sys
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene
-from PyQt5.QtGui import QBrush
-from PyQt5.QtCore import Qt, QThread , pyqtSignal
+from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QWidget
+from PyQt5.QtGui import QBrush, QPen, QColor, QPainter, QPixmap
+from PyQt5.QtCore import Qt, QThread , pyqtSignal, QSize, QPointF
 from PyQt5 import uic
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QGraphicsPixmapItem
@@ -13,21 +13,41 @@ import math
 import time
 import json
 
-class CustomGraphicsView(QtWidgets.QGraphicsView):
-    waypointAdded = QtCore.pyqtSignal(float, float)
+class XWidget(QWidget):
+    def __init__(self, parent=None):
+        super(XWidget, self).__init__(parent)
+        self.size = 20
+        self.setFixedSize(QSize(self.size, self.size))  # Size of the widget
+        self.setAttribute(Qt.WA_TranslucentBackground, True)  # Set background to be transparent
+
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setPen(QPen(QColor("black"), 5))  # Adjust pen width for thickness
+
+        # Drawing from top-left to bottom-right
+        painter.drawLine(QPointF(0, 0), QPointF(self.width(), self.height()))
+
+        # Drawing from top-right to bottom-left
+        painter.drawLine(QPointF(self.width(), 0), QPointF(0, self.height()))
+
+
+
+class CustomGraphicsView(QGraphicsView):
+    mouse_clicked = pyqtSignal(float, float)
     def __init__(self, parent=None):
         super().__init__(parent)
 
     def mousePressEvent(self, event):
         scene_point = self.mapToScene(event.pos())
         x, y = scene_point.x(), scene_point.y()
-        self.waypointAdded.emit(x, y)
+        self.mouse_clicked.emit(x, y)
 
 SIZE = 650
 TIME_TICK = 0.1
 class TimingGenerator(QThread):
     # Define a signal that will be emitted with the new x and y values
-    time_tick_signal = QtCore.pyqtSignal()
+    time_tick_signal = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -43,8 +63,8 @@ class TimingGenerator(QThread):
 
 
 class SocketListener(QThread):
-    gs_established = QtCore.pyqtSignal(str)
-    droneUpdate = QtCore.pyqtSignal(tuple)
+    gs_established = pyqtSignal(str)
+    droneUpdate = pyqtSignal(tuple)
     def __init__(self,port):
         super().__init__()
         self.port = port
@@ -82,7 +102,7 @@ class SocketListener(QThread):
 
 
 class DoubleStream(QtCore.QObject):
-    textAvailable = QtCore.pyqtSignal(str)
+    textAvailable = pyqtSignal(str)
     def __init__(self, text_edit):
         super().__init__()
         self.text_edit = text_edit
@@ -111,7 +131,9 @@ class DroneGridApp(QMainWindow):
         self.drone_icon_size = 10
         self.drones = {}
         self.waypoints = []
+        self.targets = []
         self.plotting = False
+        self.targeting = False
         self.connect_signals()
 
         # Start the socket listener
@@ -131,8 +153,9 @@ class DroneGridApp(QMainWindow):
     def connect_signals(self):
         self.launch_button.clicked.connect(self.launch_drones_slot)
         self.set_waypoints_button.clicked.connect(self.set_waypoints_slot)
-        self.graphicsView.waypointAdded.connect(self.add_waypoint_slot)
+        self.graphicsView.mouse_clicked.connect(self.mouse_clicked_slot)
         self.plot_button.clicked[bool].connect(self.plot_slot)
+        self.place_targets_button.clicked[bool].connect(self.set_targets_slot)
 
 
     def closeEvent(self, event):
@@ -196,9 +219,9 @@ class DroneGridApp(QMainWindow):
             drone_item = self.drones[drone_id]['obj']
 
             drone_item.setRotation(-angle+90)
-            drone_item.setPos(x, convert_to_scene_coordinates(y)) # move the (0,0) point to the center of screen
+            drone_item.setPos(x, convert_y_coordinates(y)) # move the (0,0) point to the center of screen
             drone_label = self.drones[drone_id]['label']
-            drone_label.setPos(x, convert_to_scene_coordinates(y)+ self.drone_icon_size) # move the (0,0) point to the center of screen
+            drone_label.setPos(x, convert_y_coordinates(y) + self.drone_icon_size) # move the (0,0) point to the center of screen
             self.drones[drone_id]['movement'] = (angle, speed)
             self.drones[drone_id]['location'] = (x, y)
         else:
@@ -210,7 +233,7 @@ class DroneGridApp(QMainWindow):
             return
         if drone_id in self.drones:
             next_wp_item = self.drones[drone_id]['wp']
-            next_wp_item.setPos(wp_x, convert_to_scene_coordinates(wp_y)) # move the (0,0) point to the center of screen
+            next_wp_item.setPos(wp_x, convert_y_coordinates(wp_y)) # move the (0,0) point to the center of screen
 
 
 
@@ -247,8 +270,58 @@ class DroneGridApp(QMainWindow):
         self.launch_button.setEnabled(False)
         self.send_data_to_erl_node(str(dic))
 
+
     @QtCore.pyqtSlot(float, float)
-    def add_waypoint_slot(self, x, y):
+    def mouse_clicked_slot(self, x, y):
+        if self.plotting:
+            self.add_waypoint(x, y)
+        elif self.targeting:
+            self.add_target(x, y)
+
+
+
+    @QtCore.pyqtSlot()
+    def set_waypoints_slot(self):
+        # waypoints = [(SIZE/ 4, SIZE / 4), (SIZE / 4, 3 * SIZE / 4), (3 * SIZE / 4, 3 * SIZE / 4), (3 * SIZE / 4, SIZE / 4)]
+        for wp in self.waypoints:
+            wp = (wp[0], convert_y_coordinates(wp[1]))
+            dic = {'add_waypoint': wp}
+            self.send_data_to_erl_node(str(dic))
+        self.send_data_to_erl_node(str({'set_waypoints': ''}))
+
+    @QtCore.pyqtSlot(bool)
+    def plot_slot(self, checked):
+        self.plotting = checked
+        if checked:
+            self.plot_button.setStyleSheet("background-color: green")
+        else:
+            self.plot_button.setStyleSheet("background-color: white")
+            if self.waypoints: # if not empty
+                self.set_waypoints_button.setEnabled(True)
+                self.close_route()
+
+    @QtCore.pyqtSlot(bool)
+    def set_targets_slot(self, checked):
+        self.targeting = checked
+        if checked:
+            self.place_targets_button.setStyleSheet("background-color: green")
+        else:
+            self.place_targets_button.setStyleSheet("background-color: white")
+
+
+    def add_target(self, x, y):
+        if not self.targeting:
+            return
+        x_widget = XWidget()
+        centered_x = x - x_widget.width() / 2
+        centered_y = y - x_widget.height() / 2
+
+        self.graphicsView.scene().addWidget(x_widget).setPos(QPointF(centered_x, centered_y))
+        self.targets.append((x, y))
+        target = (x, convert_y_coordinates(y))
+        self.send_data_to_erl_node(str({'add_target': target}))
+
+    def add_waypoint(self, x, y):
         if not self.plotting:
             return
         radius = 10
@@ -261,27 +334,6 @@ class DroneGridApp(QMainWindow):
             self.scene.addLine(prev_wp[0], prev_wp[1], x, y, QtGui.QPen(Qt.black, 2, Qt.SolidLine))
         self.waypoints.append((x, y))
 
-    @QtCore.pyqtSlot()
-    def set_waypoints_slot(self):
-        # waypoints = [(SIZE/ 4, SIZE / 4), (SIZE / 4, 3 * SIZE / 4), (3 * SIZE / 4, 3 * SIZE / 4), (3 * SIZE / 4, SIZE / 4)]
-        for wp in self.waypoints:
-            wp = (wp[0], convert_to_scene_coordinates(wp[1]))
-            dic = {'add_waypoint': wp}
-            self.send_data_to_erl_node(str(dic))
-        self.send_data_to_erl_node(str({'set_waypoints': ''}))
-
-    @QtCore.pyqtSlot(bool)
-    def plot_slot(self, checked):
-        self.plotting = checked
-        print(self.plotting)
-        if checked:
-            self.plot_button.setStyleSheet("background-color: green")
-        else:
-            self.plot_button.setStyleSheet("background-color: white")
-            if self.waypoints: # if not empty
-                self.set_waypoints_button.setEnabled(True)
-                self.close_route()
-
     def close_route(self):
         first_wp = self.waypoints[0]
         last_wp = self.waypoints[-1]
@@ -293,11 +345,16 @@ class DroneGridApp(QMainWindow):
             s.sendto(data.encode('utf-8'), ('localhost', self.out_port))
 
 
-def convert_to_scene_coordinates(y):
+def convert_y_coordinates(y):
+    """
+    converts the y coordinate from the real world to the graphics world
+    and vice versa
+    :param y:
+    :return:
+    """
     return -y + SIZE
 
-def convert_to_real_coordinates(y):
-    return -y - SIZE
+
 
 def create_triangle(size):
     """Create a triangle pointing upwards."""

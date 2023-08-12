@@ -119,14 +119,25 @@ parse_pair(String) ->
 handle_gui_msg({add_waypoint, Msg} , #state{waypoints = Waypoints} = State) ->
     Pattern = "\\((\\d+\\.?\\d*)\\s*,\\s*(\\d+\\.?\\d*)\\)",
     case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
-        {match, [Num1, Num2]} ->
-            Waypoint = {{list_to_float(Num1), list_to_float(Num2)}, 0},
+        {match, [Wp_X, Wp_Y]} ->
+            Waypoint = {{list_to_float(Wp_X), list_to_float(Wp_Y)}, 0},
             State#state{waypoints = Waypoints ++ [Waypoint]}; % update state
         nomatch ->
             io:format("Invalid waypoint: ~p~n", [Msg]),
             State % return state unchanged
     end;
 
+handle_gui_msg({add_target, Msg} , State) ->
+    Pattern = "\\((\\d+\\.?\\d*)\\s*,\\s*(\\d+\\.?\\d*)\\)",
+    case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
+        {match, [Target_X, Target_Y]} ->
+            % todo change this to the gs paramter
+            gen_server:cast({gs_server, 'gs1@localhost'}, {aquire_target,{list_to_float(Target_X),list_to_float(Target_Y)}}),
+            State; % update state
+        nomatch ->
+            io:format("Invalid waypoint: ~p~n", [Msg]),
+            State % return state unchanged
+    end;
 
 
 handle_gui_msg({set_waypoints, _} , #state{waypoints = Waypoints} = State) ->
