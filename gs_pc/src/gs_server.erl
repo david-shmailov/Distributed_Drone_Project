@@ -190,7 +190,7 @@ handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State
 
 
 handle_cast(Message, State) when is_record(Message, log_message) ->
-    gen_server:cast({?GUI_SERVER, ?GUI_NODE}, Message),
+    gen_server:cast(?GUI_GLOBAL, Message),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -222,7 +222,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 wait_for_gui(GS_location) ->
     try
-        gen_server:call({?GUI_SERVER, ?GUI_NODE}, {establish_comm, node(), GS_location})
+        gen_server:call(?GUI_GLOBAL, {establish_comm, node(), GS_location})
     catch
         exit:{{nodedown, ?GUI_NODE},_} ->
             timer:sleep(1000),
@@ -349,7 +349,7 @@ send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
         length(Stack) >= ?STACK_SIZE ->
             % io:format("Stack is full~n"), % debug
             logger("1"),
-            gen_server:cast({?GUI_SERVER, ?GUI_NODE} , {drone_update, [Drone|Stack]}),
+            gen_server:cast(?GUI_GLOBAL , {drone_update, [Drone|Stack]}),
             State#state{data_stack = []};
         true ->
             io:format("Stack is not full~n"), % debug
@@ -413,7 +413,7 @@ logger(Message) ->
     % make a string of "drone" and Id
     Name = lists:flatten(io_lib:format("gs_server gs~p",[extract_number(node())])),
     Log = #log_message{time=Time, source = Name, message = Message},
-    gen_server:cast({?GUI_SERVER, ?GUI_NODE} , Log).
+    gen_server:cast(?GUI_GLOBAL , Log).
 
 append_circle_to_leader({X,Y})->
     Result = ets:lookup(gs_ets,{X,Y}),

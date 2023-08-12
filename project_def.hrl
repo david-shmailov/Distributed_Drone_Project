@@ -2,6 +2,8 @@
 -define(RETRY_DELAY, 1000).
 -define(GUI_NODE, 'gui@localhost').
 -define(GUI_SERVER, 'gui_server').
+% -define(GUI_GLOBAL, {global, ?GUI_SERVER}).
+-define(GUI_GLOBAL, {?GUI_SERVER, ?GUI_NODE}).
 -define(STACK_SIZE, 0). % we might not need aggregation at all 
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*100).
