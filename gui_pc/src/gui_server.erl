@@ -13,7 +13,7 @@
          terminate/2,
          code_change/3]).
 
--record(state, {out_port, in_port, input_socket = undefined, log_fd = undefined, waypoints = []}).
+-record(state, {out_port, in_port, input_socket = undefined, log_fd = undefined, gs_nodes = [], waypoints = []}).
 
 
 start_link(Port_erl2py,Port_py2erl) ->
@@ -39,11 +39,11 @@ init([Port_erl2py,Port_py2erl]) ->
 
 %% gen_server callbacks
 
-handle_call({establish_comm, Node, GS_location}, _From, State) ->
+handle_call({establish_comm, Node, GS_location}, _From, #state{gs_nodes = Nodes} = State) ->
     io:format("Establishing comm with ~p~n", [Node]),
     Command = io_lib:format("establish_comm , ~p,~p", [Node, GS_location]),
     send_to_gui(Command ,State),
-    {reply, ok, State};
+    {reply, ok, State#state{gs_nodes = [Node|Nodes]}}; % add the node to the list of nodes
 
 handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
@@ -119,14 +119,25 @@ parse_pair(String) ->
 handle_gui_msg({add_waypoint, Msg} , #state{waypoints = Waypoints} = State) ->
     Pattern = "\\((\\d+\\.?\\d*)\\s*,\\s*(\\d+\\.?\\d*)\\)",
     case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
-        {match, [Num1, Num2]} ->
-            Waypoint = {{list_to_float(Num1), list_to_float(Num2)}, 0},
+        {match, [Wp_X, Wp_Y]} ->
+            Waypoint = {{list_to_float(Wp_X), list_to_float(Wp_Y)}, 0},
             State#state{waypoints = Waypoints ++ [Waypoint]}; % update state
         nomatch ->
             io:format("Invalid waypoint: ~p~n", [Msg]),
             State % return state unchanged
     end;
 
+handle_gui_msg({add_target, Msg} , #state{gs_nodes = [GS | _]} = State) ->
+    Pattern = "\\((\\d+\\.?\\d*)\\s*,\\s*(\\d+\\.?\\d*)\\)",
+    case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
+        {match, [Target_X, Target_Y]} ->
+            % send to first gs in list, which will spread to others
+            gen_server:cast({gs_server, GS}, {aquire_target,{list_to_float(Target_X),list_to_float(Target_Y)}}),
+            State; % update state
+        nomatch ->
+            io:format("Invalid waypoint: ~p~n", [Msg]),
+            State % return state unchanged
+    end;
 
 
 handle_gui_msg({set_waypoints, _} , #state{waypoints = Waypoints} = State) ->
