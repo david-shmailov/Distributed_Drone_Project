@@ -468,7 +468,7 @@ update_gs() ->
     {{Wp_X, Wp_Y},Wp_rad} = get(waypoint),
     Wp_deg = radian_to_degree(Wp_rad),
     Waypoint = {{Wp_X, Wp_Y}, Wp_deg},
-    gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint}}),
+    gen_server:cast(gs_server, {drone_update, #drone{id = get(id), location = get(location), theta = Theta, speed = get(speed), next_waypoint=Waypoint,gs_server=node(),time_stamp=get_time()}}),
     logger("1").
 
 check_borders() ->
@@ -538,3 +538,7 @@ logger(Message) ->
     Name = lists:flatten(io_lib:format("drone ~p",[get(id)])),
     Log = #log_message{time=Time, source = Name, message = Message},
     gen_server:cast(gs_server, Log).
+
+get_time()->%%in milliseconds-needs to be verified
+    Time_in_nano = erlang:monotonic_time(),
+    Time_in_nano/1000000.

@@ -69,7 +69,7 @@ handle_call({establish_comm, _}, _From, State) ->
 
 handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location, borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
-    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location=GS_location,gs_server=node(),time_stamp = get_time()}, Borders)} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()}, Borders)} || Id <- lists:seq(0,Num-1)],
     Drones_ID_updated = [{Id,PID} || {Id,{ok,PID}} <- Drones_ID],
     logger("3"),
     [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
@@ -146,25 +146,17 @@ handle_call(_Request, _From, State) ->
 
 handle_cast({drone_update, #drone{gs_server=GS_Server}=Drone}, State) when is_record(Drone,drone) ->
     % io:format("Drone update: ~p~n", [Drone]),
+    ets:insert(gs_ets, Drone),
+    Self_Node= node(),
     if
-        GS_Server == node() ->
-            New_Drone = Drone#drone{gs_server=node(),time_stamp=get_time()},
-            ets:insert(gs_ets,New_Drone),
-            New_State = send_to_gui(New_Drone, State),
-            [gen_server:cast({gs_server,Server},{drone_update,New_Drone})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()];
+        GS_Server == Self_Node ->
+            Nodes = ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],
+            [gen_server:cast({gs_server,Server},{drone_update,Drone})|| Server <- Nodes,Server =/= Self_Node],
+            {noreply,send_to_gui(Drone, State)};
         true->
-            ets:insert(gs_ets, Drone),
-            New_State = State
-    end,
-    % handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
-    % % io:format("Drone update: ~p~n", [Drone]),
-    % ets:insert(gs_ets, Drone),
-    % New_State = send_to_gui(Drone, State),
-    % {noreply, New_State};
-    Current_ets = ets:tab2list(gs_ets),
-    % New_State = send_to_gui(Drone, State),
-    %TODO: update the rest of the gs and self
-    {noreply, New_State};
+            {noreply,State}
+    end;
+    
 
 handle_cast({aquire_target,Targets}, State) ->
     io:format("Aquiring targets: ~p~n", [Targets]),
