@@ -366,13 +366,13 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
             logger("1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
-            update_neighbors([New_PID | T], Location, Theta);
+            update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta);
         Error:Kind->
             io:format("Error in update_neighbors~n~p:~p~n",[Error,Kind]),
             logger("1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
-            update_neighbors([New_PID | T], Location, Theta)
+            update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta)
 
     end.
 

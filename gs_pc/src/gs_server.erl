@@ -202,7 +202,7 @@ handle_info({nodedown, Node}, State) ->
     %% Handle the node down event as needed
     GS_ID = extract_number(Node),
     Lost_Drones = retrieve_all_drones(Node, State),
-    New_Borders = update_borders(GS_ID,State),
+    % New_Borders = update_borders(GS_ID,State),
     {noreply, State};
 
 
@@ -275,8 +275,8 @@ check_borders({X,Y}, #state{borders = Borders, neighbors = Neighbors}) ->
     if 
         X=<Left -> Neighbors#borders.left;
         X>=Right -> Neighbors#borders.right;
-        Y=<Bottom -> Neighbors#borders.bottom;
-        Y>=Top -> Neighbors#borders.top;
+        % Y=<Bottom -> Neighbors#borders.bottom;
+        % Y>=Top -> Neighbors#borders.top;
         true -> no_crossing
     end.
 
@@ -291,12 +291,12 @@ send_target_to_drone(ID, Target) ->
     send_to_drone(ID, {add_target, Target}).
 
 update_kv_in_drone(ID, Key, Value) ->
-    io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
+    % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
     send_to_drone(ID, {update_value, {Key,Value}}).
 
 send_to_drone(ID, Message) ->
     % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
-    io:format("sending message ~p to drone ~p~n", [Message, ID]),
+    % io:format("sending message ~p to drone ~p~n", [Message, ID]),
     case get_pid(ID) of
         PID when is_pid(PID) ->
             gen_statem:cast(PID, Message),
@@ -324,21 +324,21 @@ get_followers_PIDs([], Followers_PIDs) ->
 calculate_borders_and_neighbors(GS_ID) ->
     case GS_ID of
         1 -> % TODO change hard coded node names into a mechanism to get the node names
-            GS_location = {?WORLD_SIZE*0.25,?WORLD_SIZE*0.75},
-            Borders =   #borders{left = -?INFINITY, right = ?WORLD_SIZE/2, top = ?INFINITY, bottom = ?WORLD_SIZE/2},
-            Neighbors = #borders{left = undefined, right = 'gs2@localhost', top = undefined, bottom = 'gs4@localhost'};
+            GS_location = {?WORLD_SIZE*0.125,?WORLD_SIZE*0.5},
+            Borders =   #borders{left = -?INFINITY, right = ?WORLD_SIZE/4, top = ?INFINITY, bottom = -?INFINITY},
+            Neighbors = #borders{left = undefined, right = 'gs2@localhost', top = undefined, bottom = undefined};
         2 ->
-            GS_location = {?WORLD_SIZE*0.75,?WORLD_SIZE*0.75},
-            Borders =   #borders{left = ?WORLD_SIZE/2, right = ?INFINITY, top = ?INFINITY, bottom = ?WORLD_SIZE/2},
-            Neighbors = #borders{left = 'gs1@localhost', right = undefined, top = undefined, bottom = 'gs3@localhost'};
+            GS_location = {?WORLD_SIZE*0.375,?WORLD_SIZE*0.5},
+            Borders =   #borders{left = ?WORLD_SIZE/4, right = ?WORLD_SIZE/2, top = ?INFINITY, bottom = -?INFINITY},
+            Neighbors = #borders{left = 'gs1@localhost', right = 'gs3@localhost', top = undefined, bottom =undefined };
         3 ->
-            GS_location = {?WORLD_SIZE*0.75,?WORLD_SIZE*0.25},
-            Borders =   #borders{left = ?WORLD_SIZE/2, right = ?INFINITY, top = ?WORLD_SIZE/2, bottom = -?INFINITY},
-            Neighbors = #borders{left = 'gs4@localhost', right = undefined, top = 'gs2@localhost', bottom = undefined};
+            GS_location = {?WORLD_SIZE*0.625,?WORLD_SIZE*0.5},
+            Borders =   #borders{left = ?WORLD_SIZE/2, right = ?WORLD_SIZE*0.75, top = ?INFINITY, bottom = -?INFINITY},
+            Neighbors = #borders{left = 'gs2@localhost', right = 'gs4@localhost', top = undefined , bottom = undefined};
         4 ->
-            GS_location = {?WORLD_SIZE*0.25,?WORLD_SIZE*0.25},
-            Borders =   #borders{left = -?INFINITY, right = ?WORLD_SIZE/2, top = ?WORLD_SIZE/2, bottom = -?INFINITY},
-            Neighbors = #borders{left = undefined, right = 'gs3@localhost', top = 'gs1@localhost', bottom = undefined}
+            GS_location = {?WORLD_SIZE*0.875,?WORLD_SIZE*0.5},
+            Borders =   #borders{left = ?WORLD_SIZE*0.75, right = ?INFINITY, top = ?INFINITY, bottom = -?INFINITY},
+            Neighbors = #borders{left = 'gs3@localhost', right =undefined , top = undefined, bottom = undefined}
     end,
     {GS_location, Borders, Neighbors}.
 
