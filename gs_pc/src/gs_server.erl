@@ -50,7 +50,7 @@ start_link() ->
 
 
 init([]) ->
-    % start_monitor(),
+    start_monitor(),
     {ok,GS_ID} = extract_number(node()),
     {GS_location, Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
     wait_for_gui(GS_location),
@@ -69,12 +69,13 @@ handle_call({establish_comm, _}, _From, State) ->
 
 handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location, borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
-    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()}, Borders)} || Id <- lists:seq(0,Num-1)],
+    Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start_link(Drone, Borders)} || #drone{id=Id}=Drone <- Drones_States],
     Drones_ID_updated = [{Id,PID} || {Id,{ok,PID}} <- Drones_ID],
     logger("3"),
     [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
     % insert drone ID / PID into ETS table
-    [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
+    [ets:insert(gs_ets, {ID, Drone_State#drone{pid=PID}}) || {#drone{id=ID}=Drone_State,{_,PID}} <- lists:zip(Drones_States,Drones_ID_updated)],
     set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
 
@@ -91,7 +92,8 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) ->
     {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
     % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
-    ets:insert(gs_ets, {ID, PID}),
+    set_pid(ID,PID),
+    % ets:insert(gs_ets, {ID, PID}),%TODO: pull record and update pID
     {reply, {ok, PID}, State};
 
 
@@ -106,7 +108,8 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
                 {ok, New_PID} -> 
                     io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
-                    ets:insert(gs_ets, {ID, New_PID}),
+                    set_pid(ID,New_PID),
+                    % ets:insert(gs_ets, {ID, New_PID}),
                     logger("3"),
                     [gen_server:cast({gs_server,Server},{id_pid_update,[{ID,New_PID}]})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node(),Server =/= Next_GS],
                     reupdate_neighbour(ID,New_PID),
@@ -122,14 +125,15 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
 
 
 handle_call({dead_neighbour,ID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
-    [New_Pid]=ets:lookup(gs_ets, ID),
+    New_Pid=get_pid(ID),
+    % [New_Pid]=ets:lookup(gs_ets, ID),
     % io:format("Drone ID: ~p, new PID~p~n", [ID,New_Pid]),
     {reply, {ok,New_Pid}, State};
 
 handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the previous gs when he transfered a drone to this gs
     %the gs that killed his drone will ask for the pid of the drone that was killed
-    case ets:lookup(gs_ets, ID) of
-        [{ID, PID}] ->
+    case  get_pid(ID) of %ets:lookup(gs_ets, ID)
+        PID when is_pid(PID)->
             {reply, {ok, PID}, State};
         [] ->
             {reply, {error, not_found}, State}
@@ -172,8 +176,8 @@ handle_cast({id_pid_update,ID_PID_LIST}, State) ->
 
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->%%%TODO : figure out how to get the number of drones or different way to do it
     io:format("Target found~n"),
-    List_of_PIDs=[ets:lookup(gs_ets,ID)||ID <- lists:seq(1,Num_of_drones-1)],
-    [gen_statem:cast(PID,{target_found,Target})|| [{ID,PID}] <- List_of_PIDs,ID =/= 0],
+    List_of_PIDs=[get_pid(ID)||ID <- lists:seq(1,Num_of_drones-1),ID =/= 0],
+    [gen_statem:cast(PID,{target_found,Target})|| PID <- List_of_PIDs],
     append_circle_to_leader(Target),
     {noreply, State};
 
@@ -190,6 +194,7 @@ handle_info({nodedown, Node}, State) ->
     io:format("Node ~p went down!~n", [Node]),
     %% Handle the node down event as needed
     Node_to_monitor = atom_to_list(Node),
+    Ets = ets:tab2list(gs_ets),
     % Command = "rebar3 shell --sname "++Node_to_monitor++" --setcookie cookie",
     % Return_cd = os:cmd("cd /home/neriyai/Erlang-Project/gs_pc"),
     % Return_val =os:cmd(Command),
@@ -278,8 +283,8 @@ set_followers(Num) ->
 
 send_to_drone(ID, {Key,Value}) ->
     io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
-    case ets:lookup(gs_ets, ID) of
-        [{ID, PID}] ->
+    case get_pid(ID) of
+        PID when is_pid(PID) ->
             logger("1"),
             gen_statem:cast(PID, {update_value, {Key,Value}});
         [] ->
@@ -291,7 +296,7 @@ get_followers_PIDs(Followers_IDs) -> get_followers_PIDs(Followers_IDs, []).
 
 
 get_followers_PIDs([ID|T], Followers_PIDs) ->
-    [{ID, PID}] = ets:lookup(gs_ets, ID),
+    PID = get_pid(ID), %ets:lookup(gs_ets, ID),
     get_followers_PIDs(T, Followers_PIDs ++ [{ID,PID}]);
 
 
@@ -347,8 +352,8 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
     % io:format("Reupdate neighbour ~p with ~p~n",[Reborn_ID,New_PID]),
     case Reborn_ID >= 2 of
         false -> %means that the drone leader is the pack leader
-            case ets:lookup(gs_ets,0) of
-                [{0, PID}] ->
+            case get_pid(0) of %ets:lookup(gs_ets,0)
+                PID when is_pid(PID) ->
                     logger("1"),
                     gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
                 [] ->
@@ -356,8 +361,8 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
             end;
         true ->
             Leader = Reborn_ID -2,
-            case ets:lookup(gs_ets,Leader) of
-                [{Leader, PID}] ->
+            case get_pid(Leader) of %ets:lookup(gs_ets,Leader)
+                PID when is_pid(PID) ->
                     logger("1"),
                     gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
                 [] ->
@@ -370,7 +375,8 @@ id_pid_insertion([])->
     ok;
 id_pid_insertion([{ID,PID}|T]) ->
     % io:format("inserting {~p,~p}~n",[ID,PID]),
-    ets:insert(gs_ets,{ID,PID}),
+    set_pid(ID,PID),
+    % ets:insert(gs_ets,{ID,PID}),
     id_pid_insertion(T).
 
 
@@ -400,7 +406,7 @@ append_circle_to_leader({X,Y})->
             ok;
         []->
             ets:insert(gs_ets,{{X,Y},target_found}),
-            [{0,Leader_PID}] = ets:lookup(gs_ets,0),
+            Leader_PID = get_pid(0),%ets:lookup(gs_ets,0),
             List_Of_Points = [{{X+?SERACH_RADIUS*math:cos(Theta),Y+?SERACH_RADIUS*math:sin(Theta)},circle} || Theta <- [math:pi()*K/8|| K <- lists:seq(0,16)]],
             gen_statem:cast(Leader_PID,{append_circle,List_Of_Points})
         end.
@@ -408,3 +414,20 @@ append_circle_to_leader({X,Y})->
 get_time()->%%in milliseconds-needs to be verified
     Time_in_nano = erlang:monotonic_time(),
     Time_in_nano/1000000.
+
+get_pid(ID)->
+    case ets:lookup(gs_ets,ID) of
+        [{ID,#drone{pid = PID}=_}]->
+            PID;
+        [] ->
+            [],
+            io:format("get_pid:Drone ~p not found~n", [ID])
+    end.
+set_pid(ID,New_PID)->
+    case ets:lookup(gs_ets,ID) of
+        [{ID,Drone}]->
+            ets:insert(gs_ets,{ID,Drone#drone{pid = New_PID}});
+        [] ->
+            {error, not_found},
+            io:format("set_pid:Drone ~p not found~n", [ID])
+    end.    
