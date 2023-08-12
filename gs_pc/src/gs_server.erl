@@ -14,10 +14,11 @@
 
 
 
-%% State record
--record(state, {gs_id, num_of_drones, data_stack, borders, neighbors}).
 
-% record for drone location and speed update:
+%% State record
+-record(state, {gs_id, num_of_drones, data_stack, borders, neighbors }).
+
+    % record for drone location and speed update:
 
 get_node_to_monitor() -> % todo try to generelize
         {ok,Number} = extract_number(node()),
@@ -68,7 +69,7 @@ handle_call({establish_comm, _}, _From, State) ->
 
 handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
-    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2-100,?WORLD_SIZE/2+100}}, Borders)} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2-100,?WORLD_SIZE/2+100},gs_server=node(),time_stamp = get_time()}, Borders)} || Id <- lists:seq(0,Num-1)],
     Drones_ID_updated = [{Id,PID} || {Id,{ok,PID}} <- Drones_ID],
     logger("3"),
     [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
@@ -148,10 +149,26 @@ handle_call(_Request, _From, State) ->
 
 
 
-handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
+handle_cast({drone_update, #drone{gs_server=GS_Server}=Drone}, State) when is_record(Drone,drone) ->
     % io:format("Drone update: ~p~n", [Drone]),
-    ets:insert(gs_ets, Drone),
-    New_State = send_to_gui(Drone, State),
+    if
+        GS_Server == node() ->
+            New_Drone = Drone#drone{gs_server=node(),time_stamp=get_time()},
+            ets:insert(gs_ets,New_Drone),
+            New_State = send_to_gui(New_Drone, State),
+            [gen_server:cast({gs_server,Server},{drone_update,New_Drone})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()];
+        true->
+            ets:insert(gs_ets, Drone),
+            New_State = State
+    end,
+    % handle_cast({drone_update, Drone}, State) when is_record(Drone,drone) ->
+    % % io:format("Drone update: ~p~n", [Drone]),
+    % ets:insert(gs_ets, Drone),
+    % New_State = send_to_gui(Drone, State),
+    % {noreply, New_State};
+    Current_ets = ets:tab2list(gs_ets),
+    % New_State = send_to_gui(Drone, State),
+    %TODO: update the rest of the gs and self
     {noreply, New_State};
 
 handle_cast({aquire_target,Targets}, State) ->
@@ -381,4 +398,6 @@ append_circle_to_leader({X,Y})->
             gen_statem:cast(Leader_PID,{append_circle,List_Of_Points})
         end.
 
-    
+get_time()->%%in milliseconds-needs to be verified
+    Time_in_nano = erlang:monotonic_time(),
+    Time_in_nano/1000000.

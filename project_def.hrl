@@ -5,7 +5,7 @@
 -define(STACK_SIZE, 0). % we might not need aggregation at all 
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*100).
--record(drone, {id, location, theta=0, speed=0, next_waypoint={{0,0},0}}).
+-record(drone, {id, location, theta=0, speed=0, next_waypoint={{0,0},0},gs_server=undefined,time_stamp=undefined}).
 -record(borders, {left, right, top, bottom}).
 -record(mnesia_record, {id, pid}).
 -record(log_message, {time, source, message}).
@@ -14,5 +14,10 @@
 -define(STEP_SIZE,1).
 -define(SERACH_RADIUS,50).
 -define(LOG_NAME,"log.txt").
+% -export([get_time/0]).
+% get_time()->%%in milliseconds-needs to be verified
+%     {MegaSecs, Secs, MicroSecs} = os:system_time(),
+%     MegaSecs * 1000 + Secs * 1000 + MicroSecs / 1000.
+
 
 
