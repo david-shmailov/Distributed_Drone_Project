@@ -156,6 +156,7 @@ handle_cast({drone_update, #drone{gs_server=GS_Server}=Drone}, State) when is_re
     % io:format("Drone update: ~p~n", [Drone]),
     ets:insert(gs_ets, Drone),
     Self_Node= node(),
+    Etss = ets:tab2list(gs_ets),
     if
         GS_Server == Self_Node ->
             Nodes = ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],
@@ -443,3 +444,16 @@ set_pid(ID,New_PID)->
             {error, not_found},
             io:format("ERROR set_pid:Drone ~p not found~n", [ID])
     end.    
+
+drone_restore_state(ID)-> %returns the approximation of drone state
+    case ets:lookup(gs_ets,ID) of
+        [{ID,Drone}]->
+            Old_time_stamp = Drone#drone.time_stamp,
+            Current_time_stamp = get_time(),
+            Number_of_steps= (Current_time_stamp-Old_time_stamp)/?TIMEOUT,
+            {Old_X,Old_Y} = Drone#drone.location,
+            New_location = {Old_X+Number_of_steps*?STEP_SIZE*Drone#drone.speed*math:cos(Drone#drone.theta),Old_Y+Number_of_steps*?STEP_SIZE*Drone#drone.speed*math:sin(Drone#drone.theta)},
+            Drone#drone{location=New_location,time_stamp=Current_time_stamp};
+        [] ->
+            io:format("restore_drone:Drone ~p not found~n", [ID])
+    end.
