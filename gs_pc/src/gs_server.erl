@@ -71,11 +71,11 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location, borde
     io:format("Launching ~p drones~n", [Num]),
     Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()} || Id <- lists:seq(0,Num-1)],
     Drones_ID = [{Id, drone_statem:start_link(Drone, Borders)} || #drone{id=Id}=Drone <- Drones_States],
-    Drones_ID_updated = [{Id,PID} || {Id,{ok,PID}} <- Drones_ID],
+    Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,{_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
     logger("3"),
-    [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
+    [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
     % insert drone ID / PID into ETS table
-    [ets:insert(gs_ets, {ID, Drone_State#drone{pid=PID}}) || {#drone{id=ID}=Drone_State,{_,PID}} <- lists:zip(Drones_States,Drones_ID_updated)],
+    [ets:insert(gs_ets, {ID,Drone})|| {ID,Drone} <- Drones_ID_updated],
     set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
 
@@ -90,6 +90,7 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 
 handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) ->
+    io:format("Create Drone :Drone ~p is reborn at ~p with State~p~n ", [ID,node(),Drone_state]),
     {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
     % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     set_pid(ID,PID),
@@ -108,7 +109,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
                 {ok, New_PID} -> 
                     io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
-                    set_pid(ID,New_PID),
+                    set_pid(ID, New_PID),
                     % ets:insert(gs_ets, {ID, New_PID}),
                     logger("3"),
                     [gen_server:cast({gs_server,Server},{id_pid_update,[{ID,New_PID}]})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node(),Server =/= Next_GS],
@@ -172,6 +173,11 @@ handle_cast({id_pid_update,ID_PID_LIST}, State) ->
     % io:format("ID PID update: ~p~n", [ID_PID_LIST]),
     id_pid_insertion(ID_PID_LIST),
     Num_of_drones = length(ID_PID_LIST),
+    {noreply, State#state{num_of_drones = Num_of_drones}};
+
+handle_cast({id_drone_update,ID_Drone_List}, State) ->
+    [ets:insert(gs_ets, {ID, Drone})|| {ID,Drone} <- ID_Drone_List],
+    Num_of_drones = length(ID_Drone_List),
     {noreply, State#state{num_of_drones = Num_of_drones}};
 
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->%%%TODO : figure out how to get the number of drones or different way to do it
@@ -376,7 +382,7 @@ id_pid_insertion([])->
 id_pid_insertion([{ID,PID}|T]) ->
     % io:format("inserting {~p,~p}~n",[ID,PID]),
     set_pid(ID,PID),
-    % ets:insert(gs_ets,{ID,PID}),
+    % ets:insert(gs_ets,{ID,Drone}),
     id_pid_insertion(T).
 
 

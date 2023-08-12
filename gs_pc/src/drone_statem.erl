@@ -31,6 +31,7 @@ start(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,bord
 
 rebirth(State, Borders) when is_record(Borders,borders) ->
     % gen_statem:start(?MODULE, [rebirth, State, Borders], []).
+    io:format("rebirth Drone state:~p~n",[State]),
     gen_statem:start_link(?MODULE, [rebirth, State, Borders], []).
 
 stop() ->
