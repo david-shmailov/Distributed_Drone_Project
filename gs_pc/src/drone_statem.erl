@@ -31,7 +31,7 @@ start(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,bord
 
 rebirth(State, Borders) when is_record(Borders,borders) ->
     % gen_statem:start(?MODULE, [rebirth, State, Borders], []).
-    io:format("rebirth Drone state:~p~n",[State]),
+    % io:format("rebirth Drone state:~p~n",[State]),
     gen_statem:start_link(?MODULE, [rebirth, State, Borders], []).
 
 stop() ->
@@ -50,7 +50,7 @@ init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on reb
     lists:foreach(fun({Key, Value}) -> put(Key, Value) end, Internal_state),
     put(borders, Borders),
     ID = get(id),
-    io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
+    % io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
     case ID of
         0 ->
             State = leader;
@@ -61,13 +61,14 @@ init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on reb
 
 
 init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, Borders]) ->
-    io:format("Init~n"),
+    % io:format("Init~n"),
     put(location, Location),
     put(id, ID),
     put(theta, degree_to_radian(Theta)),
     put(speed, Speed),
     put(waypoint, {Location, Theta}),
     put(borders, Borders),
+    put(targets, []),
     case ID of
         0 ->
             State = leader,
@@ -99,38 +100,32 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% slave state
 
+
 slave(state_timeout, _From, _Data) ->
     % io:format("Drone ~p :slave state_timeout~n",[get(id)]),
     step(slave),
-    {Found,Result} = look_for_target(),
+    look_for_target(),
     % io:format("Drone ~p :slave state_timeout target:~p~n",[get(id),Found]),
-    Check_borders = check_borders(),
-    if
-        Found == found_target -> 
-            io:format("Drone ~p :found target ~p~n",[get(id),Result]),
-            gen_server:cast(gs_server, {target_found, Result}),
-            logger("1"),
+    case check_borders() of
+        ok -> 
             {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
-        Check_borders == ok->
-            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
-        Check_borders == terminate ->
-            {stop, normal, _Data};
-        true ->
-            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]}
+        terminate ->
+            {stop, normal, _Data}
     end;
 
 
 
 slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % test
     gen_statem:reply(_From, ok),    
-    io:format("Drone ~p :call vector_update in slave~n",[get(id)]),
+    % io:format("Drone ~p :call vector_update in slave~n",[get(id)]),
     waypoint_update(Leader_Location, Leader_Theta),
     {WP_Position, WP_Theta}= get(waypoint),
     case get(followers) of
         undefined ->
-            io:format("followers is undefined~n");
+            io:format("ERROR followers is undefined~n");
         []->
-            io:format("followers is empty~n");
+            % io:format("followers is empty~n"),
+            ok;
         [_|_] = Followers ->
             update_neighbors(Followers, WP_Position, WP_Theta) 
     end,
@@ -139,48 +134,26 @@ slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}},_Data) -> % t
 
 
 
-slave(cast,{update_value,{Key,Value}},_From) -> % test
-    io:format("cast update_value in slave Key:~p ,Value:~p~n",[Key,Value]),
-    if
-        Key == targets ->
-            io:format("Drone ~p :update targets to ~p~n",[get(id),Value]),
-            case get(targets) of
-                undefined ->
-                    put(targets,[Value]);
-                Exsiting_targets ->
-                    put(targets,Exsiting_targets ++ [Value])
-            end;
-        true ->
-            put(Key,Value)
-    end,
+slave(cast,{update_value,{Key,Value}},_Data) -> % test
+    % io:format("cast update_value in slave Key:~p ,Value:~p~n",[Key,Value]),
+    put(Key,Value),
     {keep_state,[]};
 
-slave(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
+slave(cast,{add_target, Target},_Data) ->
+    add_target(Target),
+    {keep_state,[]};
+
+slave(cast,{replace_neighbour,{Reborn_ID,New_PID}},_Data) ->
     replace_dead_neighbour(Reborn_ID, New_PID),
     {keep_state,[]};
-% slave(cast,{aquire_targets, Target_Locations},_From)->%%target location is a list of {x,y}
-%     io:format("Drone ~p :aquire_target at ~p~n",[get(id),Target_Locations]),
-%     case get(targets) of
-%         undefined ->
-%             put(targets,Target_Locations);
-%         Exsiting_targets ->
-%             put(targets,Exsiting_targets ++ Target_Locations)
-%         end,
-%     {keep_state,[]};
+
 slave(cast,{target_found,Target},_From)->
-    Current_targets = get(targets),
-    Next_targets = lists:delete(Target,Current_targets),
-    put(targets,Next_targets),
+    remove_target(Target),
     {keep_state,[]};
-% slave(cast,{back_to_normal,_Target},_From)->
-%     put(targets,undefined),
-%     {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
-% slave(info,back_to_normal,_Data)->
-%     put(targets,undefined),
-%     {next_state,get(state),[],[{state_timeout, ?TIMEOUT, time_tick}]};
+
 
 slave(_Event, _Data, _From) -> % test
-    io:format("unknown event ~p in slave~n", [_Event]),
+    io:format("ERROR unknown event ~p in slave~n", [_Event]),
     io:format("the data is ~p~n, from:~p~n", [_Data, _From]),
     {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]}.
 
@@ -202,90 +175,56 @@ leader(state_timeout,_From , _Data) ->
             update_gs(),
             case get(followers) of
                 undefined ->
-                    io:format("followers is undefined~n");
+                    io:format("ERROR followers is undefined~n");
                 []->
-                    io:format("followers is empty~n");
+                    % io:format("followers is empty~n"),
+                    ok;
                 [_|_] = Followers ->
                     update_neighbors(Followers, get(location), get(theta))
             end
     end,
-    {Found,Result} = look_for_target(),
-    Check_borders = check_borders(),
-    if
-        Found == found_target -> 
-            io:format("Drone ~p :found target ~p~n",[get(id),Result]),
-            % gen_server:cast(gs_server, {target_found, Target}),
-            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
-        Check_borders == ok->
-            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};
-        Check_borders == terminate ->
+    look_for_target(),
+    case check_borders() of
+        terminate ->
             {stop, normal, _Data};
-        true ->
+        _ ->
             {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]}
     end;
+    
 
-leader(cast,{update_value,{Key,Value}},_From) ->
-    io:format("cast update_value in leader Key: ~p, Value: ~p ~n", [Key,Value]),
-    if
-        Key == targets ->
-            io:format("Drone ~p :update targets to ~p~n",[get(id),Value]),
-            case get(targets) of
-                undefined ->
-                    put(targets,[Value]);
-                Exsiting_targets ->
-                    put(targets,Exsiting_targets ++ [Value])
-            end;
-        true ->
-            put(Key,Value)
-    end,
+leader(cast,{target_found,Target},_Data)->
+    remove_target(Target),
     {keep_state,[]};
 
-leader(cast,{append_circle, [H|_]=List},_From) when is_list(List)->
-    Way_points = get(waypoints_stack),
-    case get(waypoints_stack) of
-        undefined ->
-            put(waypoints_stack,List);
-        Exsiting_waypoints ->
-            {Location,_} = H,
-            Current_WP = get(waypoint),
-            put(waypoint,{Location,get_theta_to_wp()}),
-            put(waypoints_stack,List ++ [Current_WP]++Exsiting_waypoints)
-    end,
+leader(cast,{update_value,{Key,Value}},_Data) ->
+    put(Key,Value),
     {keep_state,[]};
 
-leader(cast,{replace_neighbour,{Reborn_ID,New_PID}},_From) ->
+leader(cast, {add_target,Target},_Data) ->
+    add_target(Target),
+    {keep_state,[]};
+
+% leader(cast,{append_circle, [H|_]=List},_From) when is_list(List)->
+%     case get(waypoints_stack) of
+%         undefined ->
+%             put(waypoints_stack,List);
+%         Exsiting_waypoints ->
+%             {Location,_} = H,
+%             Current_WP = get(waypoint),
+%             put(waypoint,{Location,get_theta_to_wp()}),
+%             put(waypoints_stack,List ++ [Current_WP]++Exsiting_waypoints)
+%     end,
+%     {keep_state,[]};
+
+leader(cast,{replace_neighbour,{Reborn_ID,New_PID}},_Data) ->
     replace_dead_neighbour(Reborn_ID, New_PID),
     {keep_state,[]};
-% leader(cast,{target_found,Target},_From)->
-%     {next_state,circle,[{state_timeout, ?TIMEOUT, Target}]};
-% leader(cast,{back_to_normal,_Target},_From)->
-%     put(targets,[]),
-%     next_waypoint(),
-%     {keep_state,[],[{state_timeout, ?TIMEOUT, time_tick}]};
 
-leader(_Event, _From, _Data) ->
-    io:format("unknown event ~p in leader~n", [_Event]),
+
+leader(_Event, Message, _Data) ->
+    io:format("unknown ~p event ~p in leader~n", [_Event, Message]),
     {keep_state, _Data, [{state_timeout, ?TIMEOUT, time_tick}]}.
 
-%%%===================================================================
-%%%target functions
-%%%
-% circle(back_to_normal,_,_)->
-%     step(get(state)),
-%     {next_state, get(state),[{state_timeout, ?TIMEOUT, time_tick}]};
-% circle(state_timeout,Target, _From) ->
-%     step(circle,Target),
-%     {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]};
-% circle(info,back_to_normal,_From) ->
-%     put(targets,undefined),
-%     {next_state, get(state),[{state_timeout, ?TIMEOUT, time_tick}]};
-% circle(cast,{target_found,Target},_From) ->
-%     {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]};
-
-
-% circle(Event, Target, From) ->
-%     io:format("unknown event ~p in circle~n", [Event]),
-%     {keep_state, Target,[{state_timeout, ?TIMEOUT, Target}]}.
 
 %%%===================================================================
 %%% Internal functions
@@ -403,26 +342,6 @@ step(slave)->
             ok
     end.
 
-step(circle,{X,Y})->
-    Distance_to_target = get_distance({get(location),0},{X,Y}),
-    case Distance_to_target > ?SERACH_RADIUS of
-        true ->
-            put(waypoint,{{X,Y},0}),
-            {X,Y} = get(location),
-            Theta = get_theta_to_wp(),
-            put(waypoint,{{X,Y},Theta}),
-            put(location,{X+?STEP_SIZE*2*math:cos(Theta),Y+?STEP_SIZE*2*math:sin(Theta)});
-        false ->
-            {X1,Y1}=get(location),
-            Current_angle = math:atan2(X1-X,Y1-Y),
-            New_angle = Current_angle + math:pi()/20,
-            Next_WP = {X+?SERACH_RADIUS*math:cos(New_angle),Y+?SERACH_RADIUS*math:sin(New_angle)},
-            put(waypoint,{Next_WP,0}),
-            Theta = get_theta_to_wp(),
-            put(waypoint,{Next_WP,Theta}),
-            put(location,{X+?STEP_SIZE*math:cos(Theta),Y+?STEP_SIZE*math:sin(Theta)}),
-            update_gs()
-    end.
 
 
 radian_to_degree(Radian) when is_atom(Radian)->
@@ -444,13 +363,13 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta)->
         update_neighbors(T, Location, Theta)
     catch
         exit:{noproc, _} ->
-            io:format("Requesting new PID~n"),
+            % io:format("Requesting new PID~n"),
             logger("1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
             update_neighbors([New_PID | T], Location, Theta);
         Error:Kind->
-            io:format("other error ~p:~p~n",[Error,Kind]),
+            io:format("Error in update_neighbors~n~p:~p~n",[Error,Kind]),
             logger("1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             replace_dead_neighbour(Neighbor_ID,New_PID),
@@ -514,21 +433,20 @@ get_value(_, []) ->
 
 look_for_target() ->
     case get(targets) of
-        undefined ->
+        [] ->
             {not_found,ok};
         Target ->
             look_for_target(Target,get(location))
-        end.
+    end.
 
 look_for_target([],_)->
     {not_found,ok};
 look_for_target([Target|Rest],Location)-> 
     Distance = get_distance({Location,0},Target),
-    io:format("Distance to target is ~p~n",[Distance]),
+    % io:format("Distance to target is ~p~n",[Distance]),
     case  Distance =< ?SERACH_RADIUS of
         true ->
-            io:format("Drone ~p has reached target at location:~p ~n",[get(id),Target]),
-            {found_target,Target};
+            found_target(Target);
         false ->
             look_for_target(Rest,Location)
     end.
@@ -543,3 +461,20 @@ logger(Message) ->
 get_time()->%%in milliseconds-needs to be verified
     Time_in_nano = erlang:monotonic_time(),
     Time_in_nano/1000000.
+
+
+add_target(Target) ->
+    Current_targets = get(targets),
+    Next_targets = [Target | Current_targets],
+    put(targets,Next_targets).
+
+remove_target(Target) ->
+    Current_targets = get(targets),
+    Next_targets = lists:delete(Target,Current_targets),
+    put(targets,Next_targets).
+
+found_target(Target) ->
+    io:format("Drone ~p , found target at ~p~n",[get(id),Target]), % todo
+    gen_server:cast(gs_server, {target_found, Target}),
+    remove_target(Target),
+    logger("1").

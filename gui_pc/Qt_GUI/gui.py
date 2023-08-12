@@ -2,7 +2,7 @@ import argparse
 import os.path
 import sys
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QWidget, QGraphicsEllipseItem
 from PyQt5.QtGui import QBrush, QPen, QColor, QPainter, QPixmap
 from PyQt5.QtCore import Qt, QThread , pyqtSignal, QSize, QPointF
 from PyQt5 import uic
@@ -12,6 +12,12 @@ import socket
 import math
 import time
 import json
+
+SIZE = 650
+TIME_TICK = 0.1
+SEARCH_RADIUS = 20
+
+
 
 class XWidget(QWidget):
     def __init__(self, parent=None):
@@ -43,8 +49,7 @@ class CustomGraphicsView(QGraphicsView):
         x, y = scene_point.x(), scene_point.y()
         self.mouse_clicked.emit(x, y)
 
-SIZE = 650
-TIME_TICK = 0.1
+
 class TimingGenerator(QThread):
     # Define a signal that will be emitted with the new x and y values
     time_tick_signal = pyqtSignal()
@@ -135,7 +140,7 @@ class DroneGridApp(QMainWindow):
         self.plotting = False
         self.targeting = False
         self.connect_signals()
-
+        self.search_radius = SEARCH_RADIUS
         # Start the socket listener
         self.RT_socket_listener = SocketListener(self.in_port)
         self.RT_socket_listener.droneUpdate.connect(self.update_drone)
@@ -209,10 +214,15 @@ class DroneGridApp(QMainWindow):
         next_wp_item = QtWidgets.QGraphicsPolygonItem(star)
         next_wp_item.setBrush(QBrush(Qt.blue))
         next_wp_item.setPos(10000, 10000)
+
+        circle_item = QGraphicsEllipseItem(10000 - self.search_radius, 10000 - self.search_radius,
+                                           2 * self.search_radius, 2 * self.search_radius)
+        self.scene.addItem(circle_item)
         self.scene.addItem(drone_label)
         self.scene.addItem(next_wp_item)
         self.scene.addItem(drone_item)
-        self.drones[drone_id] = {'obj':drone_item,'label':drone_label, 'movement':(0,0), 'location':(0,0), 'wp':next_wp_item}
+        self.drones[drone_id] = {'obj':drone_item,'label':drone_label, 'circle':circle_item,
+                                 'movement':(0,0), 'location':(0,0), 'wp':next_wp_item}
 
     def move_drone(self, drone_id, x, y, angle, speed):
         if drone_id in self.drones:
@@ -222,6 +232,9 @@ class DroneGridApp(QMainWindow):
             drone_item.setPos(x, convert_y_coordinates(y)) # move the (0,0) point to the center of screen
             drone_label = self.drones[drone_id]['label']
             drone_label.setPos(x, convert_y_coordinates(y) + self.drone_icon_size) # move the (0,0) point to the center of screen
+            circle_item = self.drones[drone_id]['circle']
+            circle_item.setRect(x - self.search_radius, convert_y_coordinates(y) - self.search_radius,
+                                2 * self.search_radius, 2 * self.search_radius)
             self.drones[drone_id]['movement'] = (angle, speed)
             self.drones[drone_id]['location'] = (x, y)
         else:

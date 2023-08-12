@@ -21,7 +21,7 @@
     % record for drone location and speed update:
 
 get_node_to_monitor() -> % todo try to generelize
-        {ok,Number} = extract_number(node()),
+    {ok,Number} = extract_number(node()),
     case Number of
         1 ->
             Node_to_monitor = 'gs2@localhost';
@@ -33,6 +33,8 @@ get_node_to_monitor() -> % todo try to generelize
             Node_to_monitor = 'gs1@localhost'
     end,
     Node_to_monitor.
+
+
 start_monitor()->
     Node_to_monitor = get_node_to_monitor(),
     case net_adm:ping(Node_to_monitor) of
@@ -40,6 +42,7 @@ start_monitor()->
             io:format("Node ~p is up~n",[Node_to_monitor]),
             monitor_node(Node_to_monitor,true);
         pang ->
+            timer:sleep(500),
             start_monitor()
     end.
 
@@ -50,12 +53,12 @@ start_link() ->
 
 
 init([]) ->
-    start_monitor(),
     {ok,GS_ID} = extract_number(node()),
     {GS_location, Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
     wait_for_gui(GS_location),
     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
     logger("1"),
+    % start_monitor(),
     {ok, #state{gs_id = GS_ID, data_stack=[], borders = Borders, neighbors= Neighbors, gs_location = GS_location}}.
 
 
@@ -68,7 +71,7 @@ handle_call({establish_comm, _}, _From, State) ->
 
 
 handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location, borders = Borders} =State) ->
-    io:format("Launching ~p drones~n", [Num]),
+    % io:format("Launching ~p drones~n", [Num]),
     Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()} || Id <- lists:seq(0,Num-1)],
     Drones_ID = [{Id, drone_statem:start_link(Drone, Borders)} || #drone{id=Id}=Drone <- Drones_States],
     Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,{_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
@@ -81,8 +84,8 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location, borde
 
 
 handle_call({set_waypoints, Waypoints}, _From, State) ->
-    io:format("Setting waypoints: ~p~n", [Waypoints]),
-    send_to_drone(0, {waypoints_stack, Waypoints}),
+    % io:format("Setting waypoints: ~p~n", [Waypoints]),
+    update_kv_in_drone(0, waypoints_stack, Waypoints),
     {reply, ok, State};
 
 
@@ -90,7 +93,7 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 
 handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) ->
-    io:format("Create Drone :Drone ~p is reborn at ~p with State~p~n ", [ID,node(),Drone_state]),
+    % io:format("Create Drone :Drone ~p is reborn at ~p with State~p~n ", [ID,node(),Drone_state]),
     {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
     % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     set_pid(ID,PID),
@@ -104,11 +107,11 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
         no_crossing ->
             {reply, ok, State};
         Next_GS ->
-            io:format("Drone ~p is crossing border~n", [ID]),
+            % io:format("Drone ~p is crossing border~n", [ID]),
             logger("1"),
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
                 {ok, New_PID} -> 
-                    io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
+                    % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
                     set_pid(ID, New_PID),
                     % ets:insert(gs_ets, {ID, New_PID}),
                     logger("3"),
@@ -116,7 +119,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
                     reupdate_neighbour(ID,New_PID),
                     {reply, terminate, State}; % terminate the old drone
                 _ -> 
-                    io:format("Error creating drone on neighbor GS ~p~n", [Next_GS]),
+                    io:format("ERROR creating drone on neighbor GS ~p~n", [Next_GS]),
                     {reply, ok, State} % drone creation failed, dont terminate the old drone
             end
     end;
@@ -163,9 +166,8 @@ handle_cast({drone_update, #drone{gs_server=GS_Server}=Drone}, State) when is_re
     end;
     
 
-handle_cast({aquire_target,Targets}, State) ->
-    io:format("Aquiring targets: ~p~n", [Targets]),
-    [send_to_drone(ID, {targets, Targets}) || ID <- lists:seq(0,State#state.num_of_drones-1)],%% sends target one at a time only the drone has a list of targets
+handle_cast({aquire_target,Target}, #state{num_of_drones = Nof_Drones} = State) ->
+    [send_target_to_drone(ID, Target) || ID <- lists:seq(0,Nof_Drones-1)],%% sends target one at a time only the drone has a list of targets
     {noreply, State};
 
 
@@ -181,10 +183,9 @@ handle_cast({id_drone_update,ID_Drone_List}, State) ->
     {noreply, State#state{num_of_drones = Num_of_drones}};
 
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->%%%TODO : figure out how to get the number of drones or different way to do it
-    io:format("Target found~n"),
     List_of_PIDs=[get_pid(ID)||ID <- lists:seq(1,Num_of_drones-1),ID =/= 0],
     [gen_statem:cast(PID,{target_found,Target})|| PID <- List_of_PIDs],
-    append_circle_to_leader(Target),
+    % append_circle_to_leader(Target),
     {noreply, State};
 
 
@@ -281,20 +282,25 @@ check_borders({X,Y}, #state{borders = Borders, neighbors = Neighbors}) ->
 
 
 set_followers(Num) ->
-    io:format("Setting followers~n"),
+    % io:format("Setting followers~n"),
     Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
     Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
-    [send_to_drone(ID, {followers, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)].
+    [update_kv_in_drone(ID, followers, PIDs) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)].
 
+send_target_to_drone(ID, Target) ->
+    send_to_drone(ID, {add_target, Target}).
 
-send_to_drone(ID, {Key,Value}) ->
-    io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
+update_kv_in_drone(ID, Key, Value) ->
+    send_to_drone(ID, {update_value, {Key,Value}}).
+
+send_to_drone(ID, Message) ->
+    % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
     case get_pid(ID) of
         PID when is_pid(PID) ->
-            logger("1"),
-            gen_statem:cast(PID, {update_value, {Key,Value}});
+            gen_statem:cast(PID, Message),
+            logger("1");
         [] ->
-            io:format("Drone ~p not found~n", [ID])
+            io:format("ERROR Drone ~p not found~n", [ID])
     end.
 
 
@@ -427,7 +433,7 @@ get_pid(ID)->
             PID;
         [] ->
             [],
-            io:format("get_pid:Drone ~p not found~n", [ID])
+            io:format("ERROR get_pid:Drone ~p not found~n", [ID])
     end.
 set_pid(ID,New_PID)->
     case ets:lookup(gs_ets,ID) of
@@ -435,5 +441,5 @@ set_pid(ID,New_PID)->
             ets:insert(gs_ets,{ID,Drone#drone{pid = New_PID}});
         [] ->
             {error, not_found},
-            io:format("set_pid:Drone ~p not found~n", [ID])
+            io:format("ERROR set_pid:Drone ~p not found~n", [ID])
     end.    

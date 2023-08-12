@@ -12,7 +12,7 @@
 -define(TIMEOUT, 100).
 -define(INDENTATION,{0,20}).
 -define(STEP_SIZE,1).
--define(SERACH_RADIUS,50).
+-define(SERACH_RADIUS,20).
 -define(LOG_NAME,"log.txt").
 % -export([get_time/0]).
 % get_time()->%%in milliseconds-needs to be verified
