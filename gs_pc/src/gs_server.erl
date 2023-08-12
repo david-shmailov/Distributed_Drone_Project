@@ -16,7 +16,7 @@
 
 
 %% State record
--record(state, {gs_id, num_of_drones, data_stack, borders, neighbors }).
+-record(state, {gs_id, num_of_drones, data_stack, gs_location, borders, neighbors}).
 
     % record for drone location and speed update:
 
@@ -50,13 +50,13 @@ start_link() ->
 
 
 init([]) ->
-    start_monitor(),
-    ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
+    % start_monitor(),
     {ok,GS_ID} = extract_number(node()),
-    {Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
+    {GS_location, Borders, Neighbors} = calculate_borders_and_neighbors(GS_ID),
+    wait_for_gui(GS_location),
+    ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
     logger("1"),
-    gen_server:call({?GUI_SERVER, ?GUI_NODE}, {establish_comm, self()}),
-    {ok, #state{gs_id = GS_ID, data_stack=[], borders = Borders, neighbors= Neighbors}}.
+    {ok, #state{gs_id = GS_ID, data_stack=[], borders = Borders, neighbors= Neighbors, gs_location = GS_location}}.
 
 
     
@@ -67,14 +67,15 @@ handle_call({establish_comm, _}, _From, State) ->
     {reply, Reply , State};
 
 
-handle_call({launch_drones, Num}, _From, #state{borders = Borders} =State) ->
+handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location, borders = Borders} =State) ->
     io:format("Launching ~p drones~n", [Num]),
-    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location={?WORLD_SIZE/2-100,?WORLD_SIZE/2+100},gs_server=node(),time_stamp = get_time()}, Borders)} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start_link(#drone{id=Id,location=GS_location,gs_server=node(),time_stamp = get_time()}, Borders)} || Id <- lists:seq(0,Num-1)],
     Drones_ID_updated = [{Id,PID} || {Id,{ok,PID}} <- Drones_ID],
     logger("3"),
     [gen_server:cast({gs_server,Server},{id_pid_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
     % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID, PID}) || {ID,{ok,PID}} <- Drones_ID],
+    set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
 
 
@@ -83,12 +84,6 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
     send_to_drone(0, {waypoints_stack, Waypoints}),
     {reply, ok, State};
 
-handle_call(set_followers,_From, #state{num_of_drones = Num}=State) ->
-    io:format("Setting followers~n"),
-    Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
-    Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
-    [send_to_drone(ID, {followers, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)],
-    {reply, ok, State};
 
 
 
@@ -225,6 +220,18 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 
 
+wait_for_gui(GS_location) ->
+    try
+        gen_server:call({?GUI_SERVER, ?GUI_NODE}, {establish_comm, node(), GS_location})
+    catch
+        exit:{{nodedown, ?GUI_NODE},_} ->
+            timer:sleep(1000),
+            io:format("GUI is down, retrying...~n"),
+            wait_for_gui(GS_location)
+    end.
+
+
+
 extract_number(NodeName) ->
     case re:run(atom_to_list(NodeName), "gs([0-9]+)@.*", [{capture, all_but_first, list}]) of
         {match, [Number]} -> 
@@ -270,7 +277,11 @@ check_borders({X,Y}, #state{borders = Borders, neighbors = Neighbors}) ->
     end.
 
 
-
+set_followers(Num) ->
+    io:format("Setting followers~n"),
+    Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
+    Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
+    [send_to_drone(ID, {followers, PIDs}) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)].
 
 
 send_to_drone(ID, {Key,Value}) ->
@@ -300,19 +311,23 @@ get_followers_PIDs([], Followers_PIDs) ->
 calculate_borders_and_neighbors(GS_ID) ->
     case GS_ID of
         1 -> % TODO change hard coded node names into a mechanism to get the node names
+            GS_location = {?WORLD_SIZE*0.25,?WORLD_SIZE*0.75},
             Borders =   #borders{left = -?INFINITY, right = ?WORLD_SIZE/2, top = ?INFINITY, bottom = ?WORLD_SIZE/2},
             Neighbors = #borders{left = undefined, right = 'gs2@localhost', top = undefined, bottom = 'gs4@localhost'};
         2 ->
+            GS_location = {?WORLD_SIZE*0.75,?WORLD_SIZE*0.75},
             Borders =   #borders{left = ?WORLD_SIZE/2, right = ?INFINITY, top = ?INFINITY, bottom = ?WORLD_SIZE/2},
             Neighbors = #borders{left = 'gs1@localhost', right = undefined, top = undefined, bottom = 'gs3@localhost'};
         3 ->
+            GS_location = {?WORLD_SIZE*0.75,?WORLD_SIZE*0.25},
             Borders =   #borders{left = ?WORLD_SIZE/2, right = ?INFINITY, top = ?WORLD_SIZE/2, bottom = -?INFINITY},
             Neighbors = #borders{left = 'gs4@localhost', right = undefined, top = 'gs2@localhost', bottom = undefined};
         4 ->
+            GS_location = {?WORLD_SIZE*0.25,?WORLD_SIZE*0.25},
             Borders =   #borders{left = -?INFINITY, right = ?WORLD_SIZE/2, top = ?WORLD_SIZE/2, bottom = -?INFINITY},
             Neighbors = #borders{left = undefined, right = 'gs3@localhost', top = 'gs1@localhost', bottom = undefined}
     end,
-    {Borders, Neighbors}.
+    {GS_location, Borders, Neighbors}.
 
 
 
