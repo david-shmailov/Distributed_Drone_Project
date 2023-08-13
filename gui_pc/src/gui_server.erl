@@ -47,6 +47,7 @@ handle_call({establish_comm, Node, GS_location}, _From, #state{gs_nodes = Nodes}
     {reply, ok, State#state{gs_nodes = [Node|Nodes]}}; % add the node to the list of nodes
 
 handle_call(_Request, _From, State) ->
+    io:format("Unknown message: ~p from ~p ~n", [_Request, _From]),
     {reply, ignored, State}.
 
 

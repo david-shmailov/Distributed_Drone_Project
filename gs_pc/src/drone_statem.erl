@@ -60,7 +60,7 @@ init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on reb
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]};
 
 
-init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, Borders]) ->
+init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, Borders]) when is_record(Borders,borders) ->
     % io:format("Init~n"),
     put(location, Location),
     put(id, ID),

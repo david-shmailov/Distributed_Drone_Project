@@ -8,7 +8,7 @@
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*100).
 -record(drone, {id, location, theta=0, speed=0, next_waypoint={{0,0},0},gs_server=undefined,time_stamp=undefined,pid = undefined}).
--record(borders, {left, right, top, bottom}).
+-record(area, {left_border, right_border}).
 -record(mnesia_record, {id, pid}).
 -record(log_message, {time, source, message}).
 -define(TIMEOUT, 100).
