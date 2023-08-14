@@ -300,7 +300,8 @@ class DroneGridApp(QMainWindow):
             wp = (wp[0], convert_y_coordinates(wp[1]))
             dic = {'add_waypoint': wp}
             self.send_data_to_erl_node(str(dic))
-        self.send_data_to_erl_node(str({'set_waypoints': ''}))
+        gs = self.gs_list_combo_box.currentText()
+        self.send_data_to_erl_node(str({'set_waypoints': f'{gs}'}))
 
     @QtCore.pyqtSlot(bool)
     def plot_slot(self, checked):
