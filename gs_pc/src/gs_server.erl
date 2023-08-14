@@ -29,6 +29,16 @@ start_monitor()->
             timer:sleep(500),
             start_monitor()
     end.
+start_monitor(Node)->
+    Node_to_monitor = get_node_to_monitor(Node),
+    case net_adm:ping(Node_to_monitor) of
+        pong ->
+            io:format("Node ~p is up~n",[Node_to_monitor]),
+            monitor_node(Node_to_monitor,true);
+        pang ->
+            timer:sleep(500),
+            start_monitor()
+    end.
 
 
 start_link() ->
@@ -49,10 +59,10 @@ init([]) ->
 
 init_global_areas() ->
     [
-        {1, [#area{left_border = -?INFINITY, right_border = ?WORLD_SIZE/4}]},
-        {2, [#area{left_border = ?WORLD_SIZE/4, right_border = ?WORLD_SIZE/2}]},
-        {3, [#area{left_border = ?WORLD_SIZE/2, right_border = 3*?WORLD_SIZE/4}]},
-        {4, [#area{left_border = 3*?WORLD_SIZE/4, right_border = ?INFINITY}]}
+        {'gs1@localhost', [#area{left_border = -?INFINITY, right_border = ?WORLD_SIZE/4}]},
+        {'gs2@localhost', [#area{left_border = ?WORLD_SIZE/4, right_border = ?WORLD_SIZE/2}]},
+        {'gs3@localhost', [#area{left_border = ?WORLD_SIZE/2, right_border = 3*?WORLD_SIZE/4}]},
+        {'gs4@localhost', [#area{left_border = 3*?WORLD_SIZE/4, right_border = ?INFINITY}]}
     ].
 
 
@@ -62,7 +72,7 @@ handle_call({establish_comm, _}, _From, State) ->
     {reply, Reply , State};
 
 
-handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =State) -> % todo - replace borders with proper area
+handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =State) -> % todo debug- replace borders with proper area
     % io:format("Launching ~p drones~n", [Num]),
     Borders = get_home_area(State),
     Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()} || Id <- lists:seq(0,Num-1)],
@@ -70,7 +80,6 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =Stat
     Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,  {_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
     logger("3"),
     [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
-    % insert drone ID / PID into ETS table
     [ets:insert(gs_ets, {ID,Drone})|| {ID,Drone} <- Drones_ID_updated],
     set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
@@ -85,8 +94,9 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 
 
-handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=State) -> % todo update to work with areas
+handle_call({create_drone, ID, Drone_state}, _From, #state{all_areas=Areas}=State) -> % todo update to work with areas
     % io:format("Create Drone :Drone ~p is reborn at ~p with State~p~n ", [ID,node(),Drone_state]),
+    Borders = get_home_area(State),
     {ok, PID} = drone_statem:rebirth(Drone_state, Borders),
     % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     set_pid(ID,PID),
@@ -95,14 +105,14 @@ handle_call({create_drone, ID, Drone_state}, _From, #state{borders=Borders}=Stat
 
 
 handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
-    Transfer_to_GS_ID = check_borders(Location, State),
-    case Transfer_to_GS_ID of
-        no_crossing -> % todo send new internal area to drone
-            {reply, ok, State};
-        Next_GS ->
+    {Next_GS,Next_area} = check_borders(Location, State),
+    if 
+        Next_GS == 'no_crossing' -> % todo debug: send new internal area to drone ->
+            {reply, {change_area, Next_area},State};
+        true ->
             % io:format("Drone ~p is crossing border~n", [ID]),
             logger("1"),
-            case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state}) of 
+            case gen_server:call({gs_server, Next_GS}, {create_drone, ID, lists:keyreplace(borders,1,Drone_state,{borders,Next_area})}) of % todo debug:check that it really is changing the dictionary
                 {ok, New_PID} -> 
                     % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
                     set_pid(ID, New_PID),
@@ -179,6 +189,9 @@ handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State
     [gen_statem:cast(PID,{target_found,Target})|| PID <- List_of_PIDs],
     % append_circle_to_leader(Target),
     {noreply, State};
+handle_cast({update_areas,New_Areas}, State) ->
+    io:format("update areas: ~p~n", [New_Areas]),
+    {noreply, State#state{all_areas = New_Areas}};
 
 
 handle_cast(Message, State) when is_record(Message, log_message) ->
@@ -189,13 +202,25 @@ handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
 
-handle_info({nodedown, Node}, State) ->
+handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=State) ->
     io:format("Node ~p went down!~n", [Node]),
     %% Handle the node down event as needed
-    Dead_GS = extract_number(Node),
+    {ok,Dead_GS} = extract_number(Node),
+    {true, New_Areas} = expand_areas(Node, State),
     Lost_Drones = retrieve_all_drones(Node, State), % todo continue recreating the drones
-    {true, New_Areas} = expand_areas(Dead_GS, State),
-    {noreply, State#state{all_areas = New_Areas}};
+    % start_monitor(Dead_GS),% monitor the node that the dead node was suppose to monitor
+    if Lost_Drones ==[] ->
+            {noreply, State#state{all_areas = New_Areas}};
+        true->
+            Borders = [assign_area(X,All_Areas)|| #drone{location={X,_}} <- Lost_Drones],% assign the proper borders for each drone (could be differenet if gs have more then 1 area)
+            New_PIDS = [drone_statem:start_link(Drone_state, Border)||{Drone_state,{_,Border}} <- lists:zip(Lost_Drones,Borders)],% rebirth the drones
+            Drones_ID_updated =[{ID,Drone}|| {#drone{id=ID,pid=PID}=Drone,{_,PID}} <-lists:zip(Lost_Drones,New_PIDS)],
+            [set_pid(ID,PID)|| {ID,{_,PID}} <- lists:zip(lists:seq(0,NOF-1),New_PIDS)],% update the ets with the new pids
+            [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- nodes(),Server =/= node(),Server=/=Node],
+            io:format("Lost drones: ~p~n", [Lost_Drones]),
+            set_followers(NOF),
+            {noreply, State#state{all_areas = New_Areas}}
+        end;
 
 
 handle_info(_Info, State) ->
@@ -262,14 +287,28 @@ calculate_neighbor(ID,Num_of_drones) ->
     end.
 
 % gets position and returns the next GS PID or no_crossing if not within borders
-check_borders({X,_}, #state{borders = Borders, neighbors = Neighbors}) -> % todo modify this function to work with {GS, [Area1, Area2, ...]}
-    #borders{left=Left,right=Right}=Borders,
-    if 
-        X=<Left -> Neighbors#borders.left;
-        X>=Right -> Neighbors#borders.right;
-        % Y=<Bottom -> Neighbors#borders.bottom;
-        % Y>=Top -> Neighbors#borders.top;
-        true -> no_crossing % todo update drone borders if it crossed to a different area that is also in this node
+check_borders({X,_}, #state{gs_id=MyGS,all_areas = All_Areas}) -> % todo debug modify this function to work with {GS, [Area1, Area2, ...]}
+    GS_Node = number_to_gs(MyGS),
+    {GS_Node, MyAreas}  = lists:keyfind(GS_Node, 1, All_Areas),
+    {Next_GS,Next_area} = assign_area(X, All_Areas),
+    if
+        GS_Node =:= Next_GS ->
+            {no_crossing,Next_area};
+        true -> {Next_GS,Next_area} % todo debug update drone borders if it crossed to a different area that is also in this node
+    end.
+
+assign_area(X,[])->
+    io:format("Error: no area found~n");
+
+assign_area(X,[{_,[]}|Other_GS])->
+    assign_area(X,Other_GS);
+
+assign_area(X,[{GS,[H|T]}|Other_GS])->
+    case X<H#area.right_border andalso X>H#area.left_border of
+        true ->
+            {GS,H};
+        false ->
+            assign_area(X,[{GS,T}|Other_GS])
     end.
 
 
@@ -444,7 +483,8 @@ drone_restore_state(ID)-> %returns the approximation of drone state
 % returns if the calling GS should backup the dead GS, updated neighbors, and updated borders.
 expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}) ->
     % All_Areas is a list of tuples [{GS, [Area1, Area2,...]}, ...]
-    {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
+    GS_Node = number_to_gs(MyGS),
+    {GS_Node, MyAreas}  = lists:keyfind(GS_Node, 1, All_Areas),
     Curr_R_Border = get_rightmost_border_modulu(MyAreas),
     {Backup, BackupAreas} = find_adjacent_GS(All_Areas, Curr_R_Border), 
     
@@ -457,7 +497,7 @@ expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}) ->
             % remove old area
             Areas_Without_Dead_GS = lists:keydelete(DeadGS, 1, All_Areas),
             % add backup areas to my areas
-            New_Areas = lists:keyreplace(MyGS, 1, Areas_Without_Dead_GS, {MyGS, MyAreas ++ BackupAreas}),
+            New_Areas = lists:keyreplace(GS_Node, 1, Areas_Without_Dead_GS, {GS_Node, MyAreas ++ BackupAreas}),
             [gen_server:cast({'gs_server',GS_NODE}, {update_areas,New_Areas}) || GS_NODE <- nodes()],
             {true,  New_Areas}
     end.
@@ -511,7 +551,9 @@ get_key(Key)->
 
 retrieve_all_drones(Node, #state{num_of_drones = Nof_Drones}) ->
     All_Drones = [get_drone(ID) || ID <- lists:seq(0,Nof_Drones-1)],
-    lists:filter(fun(Drone) -> Drone#drone.gs_server == Node end, All_Drones).
+    Old_states=lists:filter(fun(Drone) -> Drone#drone.gs_server == Node end, All_Drones),
+    [drone_restore_state(Drone#drone.id)|| Drone <- Old_states].
+
 
 
 
@@ -528,9 +570,36 @@ get_node_to_monitor() -> % todo try to generelize
             Node_to_monitor = 'gs1@localhost'
     end,
     Node_to_monitor.
+get_node_to_monitor(Node) -> % todo try to generelize
+    {ok,Number} = extract_number(Node),
+    case Number of
+        1 ->
+            Node_to_monitor = 'gs2@localhost';
+        2 ->
+            Node_to_monitor = 'gs3@localhost';
+        3 ->
+            Node_to_monitor = 'gs4@localhost';
+        4 ->
+            Node_to_monitor = 'gs1@localhost'
+    end,
+    Node_to_monitor.
 
 
 get_home_area(#state{gs_id = MyGS, all_areas=All_Areas, gs_location= {X,_}}) ->
-    {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
+    GS_Node = number_to_gs(MyGS),
+    {GS_Node, MyAreas}  = lists:keyfind(GS_Node, 1, All_Areas),
+    io:format("My areas: ~p~n", [MyAreas]),
     [Home_area] = [Area || #area{left_border = Left_border, right_border= Right_border} = Area <- MyAreas, Left_border =< X, Right_border >= X],
     Home_area.
+number_to_gs(Number)->
+    case Number of
+        1 ->
+            GS_Node = 'gs1@localhost';
+        2 ->
+            GS_Node = 'gs2@localhost';
+        3 ->
+            GS_Node = 'gs3@localhost';
+        4 ->
+            GS_Node = 'gs4@localhost'
+        end,
+    GS_Node.

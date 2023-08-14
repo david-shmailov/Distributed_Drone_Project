@@ -23,16 +23,16 @@
 %%%       : add the following event: target found
 %%% 
 
-start_link(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,borders) ->
+start_link(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,area) ->
     gen_statem:start_link(?MODULE, [Drone, Borders], []).
 
-start(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,borders) ->
+start(Drone, Borders) when is_record(Drone,drone) andalso is_record(Borders,area) ->
     gen_statem:start(?MODULE, [Drone, Borders], []).
 
-rebirth(State, Borders) when is_record(Borders,borders) ->
+rebirth(State, Area) when is_record(Area,area) ->
     % gen_statem:start(?MODULE, [rebirth, State, Borders], []).
     % io:format("rebirth Drone state:~p~n",[State]),
-    gen_statem:start_link(?MODULE, [rebirth, State, Borders], []).
+    gen_statem:start_link(?MODULE, [rebirth, State, Area], []).
 
 stop() ->
     gen_statem:stop(?MODULE).
@@ -60,7 +60,7 @@ init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on reb
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]};
 
 
-init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, Borders]) when is_record(Borders,borders) ->
+init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, Borders]) when is_record(Borders,area) ->
     % io:format("Init~n"),
     put(location, Location),
     put(id, ID),
@@ -104,9 +104,11 @@ slave(state_timeout, _From, _Data) ->
     % io:format("Drone ~p :slave state_timeout~n",[get(id)]),
     step(slave),
     look_for_target(),
-    % io:format("Drone ~p :slave state_timeout target:~p~n",[get(id),Found]),
     case check_borders() of
         ok -> 
+            {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
+        {change_area, New_Area}->
+            put(borders, New_Area),
             {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
         terminate ->
             {stop, normal, _Data}
@@ -393,9 +395,9 @@ update_gs() ->
 
 check_borders() ->
     Border_record = get(borders),
-    #borders{left=Left,right=Right,top = Top,bottom = Bottom}=Border_record,
-    {X,Y} = Location = get(location),
-    case X=<Left orelse X>=Right orelse Y=<Bottom orelse Y>=Top of
+    #area{left_border=Left,right_border=Right}=Border_record,
+    {X,_} = Location = get(location),
+    case X=<Left orelse X>=Right of
         false ->
             ok;
         true ->
@@ -415,6 +417,7 @@ cross_border(Location) ->
     % io:format("Crossing border and my neighbours are~p~n",[Dict]),
     logger("1"),
     gen_server:call(gs_server, {crossing_border, get(id), Location,Dict}, infinity).
+
 
     % {stop,normal,Location}.
 
