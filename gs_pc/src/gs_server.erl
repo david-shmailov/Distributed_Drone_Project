@@ -442,8 +442,8 @@ append_circle_to_leader({X,Y})->
         end.
 
 get_time()->%%in milliseconds-needs to be verified
-    Time_in_nano = erlang:monotonic_time(),
-    Time_in_nano/1000000.
+    Time_in_micro = erlang:monotonic_time(),
+    Time_in_micro/1000.
 
 % Gets the PID of the drone with ID
 get_pid(ID)->

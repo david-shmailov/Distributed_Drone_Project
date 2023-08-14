@@ -462,8 +462,8 @@ logger(Message) ->
     gen_server:cast(gs_server, Log).
 
 get_time()->%%in milliseconds-needs to be verified
-    Time_in_nano = erlang:monotonic_time(),
-    Time_in_nano/1000000.
+    Time_in_micro = erlang:monotonic_time(),
+    Time_in_micro/1000.
 
 
 add_target(Target) ->
