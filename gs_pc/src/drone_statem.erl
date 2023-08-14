@@ -49,6 +49,7 @@ stop() ->
 init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on rebirth
     lists:foreach(fun({Key, Value}) -> put(Key, Value) end, Internal_state),
     put(borders, Borders),
+    put(gs_server, node()),
     ID = get(id),
     % io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
     case ID of
@@ -61,9 +62,10 @@ init([rebirth | [Internal_state, Borders]]) -> % needed for pattern match on reb
 
 
 init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, Borders]) when is_record(Borders,area) ->
-    % io:format("Init~n"),
+    io:format("Drone ~p born~n", [ID]),
     put(location, Location),
     put(id, ID),
+    put(gs_server, node()),
     put(theta, degree_to_radian(Theta)),
     put(speed, Speed),
     put(waypoint, {Location, Theta}),
@@ -78,6 +80,7 @@ init([#drone{id = ID, location = Location, theta = Theta, speed= Speed}=Drone, B
             put(state,slave),
             indentation_update()
     end,
+    update_gs(),
     logger("1"),
     {ok, State, [],[{state_timeout, ?TIMEOUT, time_tick}]}.
 
@@ -108,6 +111,7 @@ slave(state_timeout, _From, _Data) ->
         ok -> 
             {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
         {change_area, New_Area}->
+            io:format("got new area ~p~n",[New_Area]),
             put(borders, New_Area),
             {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
         terminate ->
@@ -186,10 +190,14 @@ leader(state_timeout,_From , _Data) ->
     end,
     look_for_target(),
     case check_borders() of
+        ok ->
+            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]};      
+        {change_area, New_Area}->
+            io:format("got new area ~p~n",[New_Area]),
+            put(borders, New_Area),
+            {keep_state,_Data,[{state_timeout, ?TIMEOUT, time_tick}]};
         terminate ->
-            {stop, normal, _Data};
-        _ ->
-            {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]}
+            {stop, normal, _Data}
     end;
     
 

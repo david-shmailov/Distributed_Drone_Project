@@ -142,9 +142,10 @@ handle_gui_msg({add_target, Msg} , #state{gs_nodes = [GS | _]} = State) ->
     end;
 
 
-handle_gui_msg({set_waypoints, _} , #state{waypoints = Waypoints} = State) ->
+handle_gui_msg({set_waypoints, GS} , #state{waypoints = Waypoints} = State) ->
     % todo change this to the gs of the leader
-    gen_server:call({gs_server, 'gs1@localhost'}, {set_waypoints, Waypoints}),
+    GS_Node = list_to_atom(string:strip(GS)),
+    gen_server:call({gs_server, GS_Node}, {set_waypoints, Waypoints}),
     State#state{waypoints = []}; % empty waypoints stack
 
 
