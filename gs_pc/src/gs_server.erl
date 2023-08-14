@@ -209,7 +209,9 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
     {true, New_Areas} = expand_areas(DeadGS, State),
     Lost_Drones = retrieve_all_drones(Node, State), % todo continue recreating the drones
     % start_monitor(Dead_GS),% monitor the node that the dead node was suppose to monitor
-    if Lost_Drones ==[] ->
+    if 
+        Lost_Drones ==[] ->
+            io:format("No drones lost~n"),
             {noreply, State#state{all_areas = New_Areas}};
         true->
             Borders = [assign_area(X,All_Areas)|| #drone{location={X,_}} <- Lost_Drones],% assign the proper borders for each drone (could be differenet if gs have more then 1 area)
@@ -219,7 +221,6 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
             [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- nodes(),Server =/= node(),Server=/=Node],
             io:format("Lost drones: ~p~n", [Lost_Drones]),
             set_followers(NOF),
-            io:format("All Areas ~p~n", [New_Areas]),
             {noreply, State#state{all_areas = New_Areas}}
         end;
 
@@ -289,7 +290,6 @@ calculate_neighbor(ID,Num_of_drones) ->
 
 % gets position and returns the next GS PID or no_crossing if not within borders
 check_borders({X,_}, #state{gs_id=MyGS ,all_areas = All_Areas}) -> % todo debug modify this function to work with {GS, [Area1, Area2, ...]}
-    io:format("ALL Areas: ~p~n", [ All_Areas]),
     % {GS_Node, MyAreas}  = lists:keyfind(GS_Node, 1, All_Areas),
     {Next_GS,Next_area} = assign_area(X, All_Areas),
     if
@@ -466,16 +466,15 @@ set_pid(ID,New_PID)->
         [] ->
             {error, not_found},
             io:format("ERROR set_pid:Drone ~p not found~n", [ID])
-    end.    
+    end.
 
-drone_restore_state(ID)-> %returns the approximation of drone state
+drone_restore_state(ID)-> %returns the approximation of drone state 
     case ets:lookup(gs_ets,ID) of
-        [{ID,Drone}]->
-            Old_time_stamp = Drone#drone.time_stamp,
+        [{ID, #drone{time_stamp = Old_time_stamp, speed= Speed, theta= Theta, location = {Old_X,Old_Y}} = Drone}]->
             Current_time_stamp = get_time(),
             Number_of_steps= (Current_time_stamp-Old_time_stamp)/?TIMEOUT,
-            {Old_X,Old_Y} = Drone#drone.location,
-            New_location = {Old_X+Number_of_steps*?STEP_SIZE*Drone#drone.speed*math:cos(Drone#drone.theta),Old_Y+Number_of_steps*?STEP_SIZE*Drone#drone.speed*math:sin(Drone#drone.theta)},
+            New_location = {Old_X+Number_of_steps*?STEP_SIZE*Speed*math:cos(Theta), Old_Y+Number_of_steps*?STEP_SIZE*Speed*math:sin(Theta)},
+            % New_location = {Old_X, Old_Y}, % for debug to disable location approximation
             Drone#drone{location=New_location,time_stamp=Current_time_stamp};
         [] ->
             io:format("restore_drone:Drone ~p not found~n", [ID])
