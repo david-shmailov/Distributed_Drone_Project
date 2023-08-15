@@ -47,7 +47,8 @@ start_monitor()->
             io:format("Node ~p is up~n",[Node_to_monitor]),
             monitor_node(Node_to_monitor,true);
         pang ->
-            io:format("Node gs~p is down, trying again~n",[extract_number(node())]),
+            {ok, Number} = extract_number(node()),
+            io:format("Node gs~p is down, trying again~n",[Number+1]),
             timer:sleep(1000),
             start_monitor()
     end.
