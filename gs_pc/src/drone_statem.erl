@@ -47,7 +47,7 @@ stop() ->
 
 
 init([rebirth | [#drone{id = ID} = Internal_state]]) when is_record(Internal_state, drone) -> % needed for pattern match on rebirth
-    % io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
+    io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
     case ID of
         0 ->
             State = leader;
@@ -350,7 +350,7 @@ replace_dead_neighbour(ID, New_PID,  #drone{followers= Neighbors}) ->
 
 
 update_gs(#drone{id=ID} = Internal_state) ->
-    gen_server:cast(gs_server, {drone_update, Internal_state#drone{pid=self(),time_stamp=get_time()}}),
+    gen_server:cast(gs_server, {drone_update, Internal_state#drone{pid=self(),gs_server=node(),time_stamp=get_time()}}),
     logger(ID,"1").
 
 check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) ->
@@ -396,8 +396,8 @@ logger(ID,Message) ->
     gen_server:cast(gs_server, Log).
 
 get_time()->%%in milliseconds-needs to be verified
-    Time_in_micro = erlang:monotonic_time(),
-    Time_in_micro/1000.
+    erlang:monotonic_time(millisecond).
+
 
 
 

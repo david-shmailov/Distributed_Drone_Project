@@ -8,7 +8,7 @@
     stdlib
    ]},
   {env,[]},
-  {modules, []},
+  {modules, [gs_pc_app]},
 
   {licenses, ["Apache-2.0"]},
   {links, []}

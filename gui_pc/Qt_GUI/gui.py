@@ -88,8 +88,8 @@ class SocketListener(QThread):
                 if tokens[0].strip() == "drone":
                     drone_tuple = tuple(self.to_number(x) for x in tokens[1:])
                     self.droneUpdate.emit(drone_tuple)
-                elif tokens[0].strip() == "establish_comm":
-                    self.gs_established.emit(tokens[1])
+                elif tokens[0] == "establish_comm":
+                    self.gs_established.emit(tokens[1].strip("' "))
                 else:
                     print(f"Unknown message: {data}")
 

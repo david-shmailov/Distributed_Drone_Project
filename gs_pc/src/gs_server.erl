@@ -15,30 +15,11 @@
 
 
 
+
 %% State record
 -record(state, {gs_id, num_of_drones, data_stack=[], gs_location, all_areas}).
 
 
-start_monitor()->
-    Node_to_monitor = get_node_to_monitor(),
-    case net_adm:ping(Node_to_monitor) of
-        pong ->
-            io:format("Node ~p is up~n",[Node_to_monitor]),
-            monitor_node(Node_to_monitor,true);
-        pang ->
-            timer:sleep(500),
-            start_monitor()
-    end.
-start_monitor(Node)->
-    Node_to_monitor = get_node_to_monitor(Node),
-    case net_adm:ping(Node_to_monitor) of
-        pong ->
-            io:format("Node ~p is up~n",[Node_to_monitor]),
-            monitor_node(Node_to_monitor,true);
-        pang ->
-            timer:sleep(500),
-            start_monitor()
-    end.
 
 
 start_link() ->
@@ -57,6 +38,32 @@ init([]) ->
     {ok, #state{gs_id = GS_ID, all_areas=All_Areas, gs_location = GS_location}}.
 
 
+
+
+start_monitor()->
+    Node_to_monitor = get_node_to_monitor(),
+    case net_adm:ping(Node_to_monitor) of
+        pong ->
+            io:format("Node ~p is up~n",[Node_to_monitor]),
+            monitor_node(Node_to_monitor,true);
+        pang ->
+            io:format("Node gs~p is down, trying again~n",[extract_number(node())]),
+            timer:sleep(1000),
+            start_monitor()
+    end.
+
+start_monitor(Node)->
+    Node_to_monitor = get_node_to_monitor(Node),
+    case net_adm:ping(Node_to_monitor) of
+        pong ->
+            io:format("Node ~p is up~n",[Node_to_monitor]),
+            monitor_node(Node_to_monitor,true);
+        pang ->
+            timer:sleep(500),
+            start_monitor()
+    end.
+
+
 init_global_areas() ->
     [
         {1, [#area{left_border = -?INFINITY, right_border = ?WORLD_SIZE/4}]},
@@ -73,15 +80,22 @@ handle_call({establish_comm, _}, _From, State) ->
 
 
 handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =State) -> % todo debug- replace borders with proper area
-    % io:format("Launching ~p drones~n", [Num]),
+    io:format("Launching ~p drones~n", [Num]),
     Borders = get_home_area(State),
-    Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time(), borders = Borders} || Id <- lists:seq(0,Num-1)],
+    io:format("Launching ~p drones~n", [Num]),
+    Drones_States = [#drone{id=Id,location=GS_location, gs_server=node(),time_stamp=get_time(), borders = Borders} || Id <- lists:seq(0,Num-1)],
+    io:format("Launching ~p drones~n", [Num]),
     Drones_ID = [{Id, drone_statem:start_link(Drone)} || #drone{id=Id}=Drone <- Drones_States],
+    io:format("Launching ~p drones~n", [Num]),
     Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,  {_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
+    io:format("Launching ~p drones~n", [Num]),
     logger("3"),
-    [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- nodes()],
+    [gen_server:cast({gs_server,Server},{all_drone_update,Drones_ID_updated})|| Server <- nodes()],
+    io:format("Launching ~p drones~n", [Num]),
     [ets:insert(gs_ets, {ID,Drone})|| {ID,Drone} <- Drones_ID_updated],
+    io:format("Launching ~p drones~n", [Num]),
     set_followers(Num),
+    io:format("Launching ~p drones~n", [Num]),
     {reply, ok, State#state{num_of_drones = Num}};
 
 
@@ -96,8 +110,9 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 handle_call({create_drone, ID, Drone_state, Next_area}, _From, State) -> % todo update to work with areas
     io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
-    {ok, PID} = drone_statem:rebirth(Drone_state#drone{borders = Next_area, gs_server=node()}),
-
+    New_Drone_state = Drone_state#drone{borders = Next_area, gs_server=node()},
+    {ok, PID} = drone_statem:rebirth(New_Drone_state),
+    [gen_server:cast({gs_server,Server},{id_drone_update,[{ID,New_Drone_state#drone{pid=PID}}]}) || Server <- nodes()],
     % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     set_pid(ID,PID),
     % ets:insert(gs_ets, {ID, PID}),%TODO: pull record and update pID
@@ -118,7 +133,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
                     set_pid(ID, New_PID),
                     % ets:insert(gs_ets, {ID, New_PID}),
                     logger("3"),
-                    [gen_server:cast({gs_server,Server},{id_pid_update,[{ID,New_PID}]})|| Server <- nodes(),Server =/= Next_GS],
+                    % [gen_server:cast({gs_server,Server},{id_pid_update,[{ID,New_PID}]})|| Server <- nodes(),Server =/= Next_GS],
                     reupdate_neighbour(ID,New_PID),
                     {reply, terminate, State}; % terminate the old drone
                 _ -> 
@@ -151,6 +166,10 @@ handle_call(_Request, _From, State) ->
     {reply, ignored, State}.
 
 
+handle_cast({all_drone_update, ID_Drone_List}, State) ->
+    [ets:insert(gs_ets, {ID, Drone})|| {ID,Drone} <- ID_Drone_List],
+    Num_of_drones = length(ID_Drone_List),
+    {noreply, State#state{num_of_drones = Num_of_drones}};
 
 
 
@@ -161,7 +180,7 @@ handle_cast({drone_update, #drone{id = ID, gs_server=GS_Server}=Drone}, State) w
     Self_Node= node(),
     if
         GS_Server == Self_Node ->
-            [gen_server:cast({gs_server,Server},{drone_update,Drone})|| Server <- nodes(), Server =/= 'gui@localhost'], % todo remove hard coded!
+            [gen_server:cast({gs_server,Server},{drone_update,Drone})|| Server <- nodes()], % todo remove hard coded!
             {noreply,send_to_gui(Drone, State)};
         true->
             {noreply,State}
@@ -174,15 +193,14 @@ handle_cast({aquire_target,Target}, #state{num_of_drones = Nof_Drones} = State) 
 
 
 handle_cast({id_pid_update,ID_PID_LIST}, State) ->
-    % io:format("ID PID update: ~p~n", [ID_PID_LIST]),
+    io:format("ID PID update: ~p~n", [ID_PID_LIST]),
     id_pid_insertion(ID_PID_LIST),
     Num_of_drones = length(ID_PID_LIST),
     {noreply, State#state{num_of_drones = Num_of_drones}};
 
 handle_cast({id_drone_update,ID_Drone_List}, State) ->
     [ets:insert(gs_ets, {ID, Drone})|| {ID,Drone} <- ID_Drone_List],
-    Num_of_drones = length(ID_Drone_List),
-    {noreply, State#state{num_of_drones = Num_of_drones}};
+    {noreply, State};
 
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->
     List_of_PIDs=[get_pid(ID)||ID <- lists:seq(1,Num_of_drones-1),ID =/= 0],
@@ -196,7 +214,7 @@ handle_cast({update_areas,New_Areas}, State) ->
 
 
 handle_cast(Message, State) when is_record(Message, log_message) ->
-    gen_server:cast(?GUI_GLOBAL, Message),
+    gen_server:cast(get_gui_node(), Message),
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -210,20 +228,20 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
     {true, New_Areas} = expand_areas(DeadGS, State),
     Lost_Drones = retrieve_all_drones(Node, State), % todo continue recreating the drones
     % start_monitor(Dead_GS),% monitor the node that the dead node was suppose to monitor
+    ETS = ets:tab2list(gs_ets),
+    io:format("ETS: ~p", [ETS]),
     if 
         Lost_Drones ==[] ->
-            io:format("No drones lost~n"),
-            {noreply, State#state{all_areas = New_Areas}};
+            io:format("No drones lost~n");
         true->
+            io:format("Lost drones: ~p~n", [Lost_Drones]),
             New_PIDS = [drone_statem:rebirth(Drone_state#drone{gs_server=node()})||Drone_state <- Lost_Drones],% rebirth the drones
             Drones_ID_updated =[{ID,Drone#drone{pid=PID}}   || {#drone{id=ID}=Drone, {_,PID}} <-lists:zip(Lost_Drones,New_PIDS)],
             [set_pid(ID,PID) || {ID,{_,PID}} <- lists:zip(lists:seq(0,NOF-1),New_PIDS)],% update the ets with the new pids
             [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated}) || Server <- nodes()],
-            io:format("Lost drones: ~p~n", [Lost_Drones]),
-            set_followers(NOF),
-            
-            {noreply, State#state{all_areas = New_Areas}}
-        end;
+            set_followers(NOF)     
+        end,
+    {noreply, State#state{all_areas = New_Areas}};
 
 
 handle_info(_Info, State) ->
@@ -241,10 +259,12 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 wait_for_gui(GS_location) ->
+    
     try
-        gen_server:call(?GUI_GLOBAL, {establish_comm, node(), GS_location})
+        gen_server:call(get_gui_node(), {establish_comm, node(), GS_location}),
+        io:format("GUI is up~n")
     catch
-        exit:{{nodedown, ?GUI_NODE},_} ->
+        exit:{{nodedown, _},_} ->
             timer:sleep(1000),
             io:format("GUI is down, retrying...~n"),
             wait_for_gui(GS_location);
@@ -304,11 +324,11 @@ check_borders({X,_}, #state{gs_id=MyGS ,all_areas = All_Areas}) -> % todo debug 
 assign_area(X,[])->
     io:format("Error: no area found~n");
 
-assign_area(X,[{_,[]}|Other_GS])->
+assign_area(X, [{_,[]} | Other_GS])->
     assign_area(X,Other_GS);
 
-assign_area(X,[{GS,[H|T]}|Other_GS])->
-    case X<H#area.right_border andalso X>H#area.left_border of
+assign_area(X, [{GS,[H|T]}  |Other_GS])->
+    case X=<H#area.right_border andalso X>H#area.left_border of
         true ->
             {GS,H};
         false ->
@@ -363,7 +383,7 @@ send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
         length(Stack) >= ?STACK_SIZE ->
             % io:format("Stack is full~n"), % debug
             logger("1"),
-            gen_server:cast(?GUI_GLOBAL , {drone_update, [Drone|Stack]}),
+            gen_server:cast(get_gui_node() , {drone_update, [Drone|Stack]}),
             State#state{data_stack = []};
         true ->
             io:format("Stack is not full~n"), % debug
@@ -429,7 +449,7 @@ logger(Message) ->
     {ok, Node_ID} = extract_number(node()),
     Name = lists:flatten(io_lib:format("gs_server gs~p",[Node_ID])),
     Log = #log_message{time=Time, source = Name, message = Message},
-    gen_server:cast(?GUI_GLOBAL , Log).
+    gen_server:cast(get_gui_node() , Log).
 
 append_circle_to_leader({X,Y})->
     Result = ets:lookup(gs_ets,{X,Y}),
@@ -444,8 +464,7 @@ append_circle_to_leader({X,Y})->
         end.
 
 get_time()->%%in milliseconds-needs to be verified
-    Time_in_micro = erlang:monotonic_time(),
-    Time_in_micro/1000.
+    erlang:monotonic_time(millisecond).
 
 % Gets the PID of the drone with ID
 get_pid(ID)->
@@ -461,6 +480,7 @@ set_pid(ID,New_PID)->
     case ets:lookup(gs_ets,ID) of
         [{ID,Drone}]->
             ets:insert(gs_ets,{ID,Drone#drone{pid = New_PID}});
+            
         [] ->
             {error, not_found},
             io:format("ERROR set_pid:Drone ~p not found~n", [ID])
@@ -471,6 +491,7 @@ drone_restore_state(ID)-> %returns the approximation of drone state
         [{ID, #drone{time_stamp = Old_time_stamp, speed= Speed, theta= Theta, location = {Old_X,Old_Y}} = Drone}]->
             Current_time_stamp = get_time(),
             Number_of_steps= (Current_time_stamp-Old_time_stamp)/?TIMEOUT,
+            io:format("number of steps for drone ~p is ~p~n",[ID,Number_of_steps]),
             New_location = {Old_X+Number_of_steps*?STEP_SIZE*Speed*math:cos(Theta), Old_Y+Number_of_steps*?STEP_SIZE*Speed*math:sin(Theta)},
             % New_location = {Old_X, Old_Y}, % for debug to disable location approximation
             Drone#drone{location=New_location,time_stamp=Current_time_stamp};
@@ -577,15 +598,33 @@ get_home_area(#state{gs_id = MyGS, all_areas=All_Areas, gs_location= {X,_}}) ->
     [Home_area] = [Area || #area{left_border = Left_border, right_border= Right_border} = Area <- MyAreas, Left_border =< X, Right_border >= X],
     Home_area.
 
-number_to_gs(Number)-> % todo generalize so it can work on multiple computers
-    case Number of
-        1 ->
-            GS_Node = 'gs1@localhost';
-        2 ->
-            GS_Node = 'gs2@localhost';
-        3 ->
-            GS_Node = 'gs3@localhost';
-        4 ->
-            GS_Node = 'gs4@localhost'
-        end,
-    GS_Node.
+
+% Function that finds the node by index
+number_to_gs(Index) ->
+    Pattern = io_lib:format("gs~p@", [Index]), % Creating the pattern like gs1@, gs2@, etc.
+    MatchingNodes = lists:filter(fun(Node) -> 
+        case re:run(atom_to_list(Node), Pattern) of
+            {match, _} -> true; 
+            nomatch -> false
+        end
+    end, nodes()),
+    case MatchingNodes of
+        [Node] -> Node; % If there's exactly one matching node
+        [] -> undefined; % If no nodes match
+        _ -> {error, multiple_matches} % If there are multiple matches, which shouldn't happen
+    end.
+
+
+get_gui_node() ->
+    Pattern = io_lib:format("gui@", []),
+    MatchingNodes = lists:filter(fun(Node) -> 
+        case re:run(atom_to_list(Node), Pattern) of
+            {match, _} -> true; 
+            nomatch -> false
+        end
+    end, nodes()),
+    case MatchingNodes of
+        [Node] -> {?GUI_SERVER, Node}; % If there's exactly one matching node
+        [] -> undefined; % If no nodes match
+        _ -> {error, multiple_matches} % If there are multiple matches, which shouldn't happen
+    end.
