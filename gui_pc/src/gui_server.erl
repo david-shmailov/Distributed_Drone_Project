@@ -164,7 +164,7 @@ handle_gui_msg(Unknown, State) ->
     
 drone_to_binary(#drone{id = ID, location= Location, theta = Theta, speed = Speed, next_waypoint = Waypoint}) ->
     Waypoint_flat = flatten_waypoint(Waypoint),
-    List = [ID] ++ tuple_to_list_float(Location) ++ [Theta, Speed] ++ Waypoint_flat,
+    List = [ID] ++ tuple_to_list_float(Location) ++ [radian_to_degree(Theta), Speed] ++ Waypoint_flat,
     String = "drone," ++ string:join([number_to_string(X) || X <- List], ","),
     list_to_binary(String).
 
@@ -187,7 +187,12 @@ send_to_gui(Data, #state{out_port = Port}) ->
     gen_udp:close(Socket).
 
 
+radian_to_degree(Radian) ->
+    DegreesFloat = Radian * (180/math:pi()),
+    round(DegreesFloat).
 
+degree_to_radian(Degree) ->
+    Degree * (math:pi()/180).
 
 
 open_socket_for_listener(In_Port) ->

@@ -7,7 +7,9 @@
 -define(STACK_SIZE, 0). % we might not need aggregation at all 
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*100).
--record(drone, {id, location, theta=0, speed=0, next_waypoint={{0,0},0},gs_server=undefined,time_stamp=undefined,pid = undefined}).
+-record(drone, {id, location, theta=0, speed=0, pid = undefined, next_waypoint={{0,0},0},
+    gs_server=undefined,time_stamp=undefined, state = slave, borders = undefined, targets = [],
+    waypoints_stack = [], indentation = {0,0}, followers = []}).
 -record(area, {left_border, right_border}).
 -record(mnesia_record, {id, pid}).
 -record(log_message, {time, source, message}).

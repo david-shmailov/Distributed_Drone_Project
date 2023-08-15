@@ -75,11 +75,11 @@ handle_call({establish_comm, _}, _From, State) ->
 handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =State) -> % todo debug- replace borders with proper area
     % io:format("Launching ~p drones~n", [Num]),
     Borders = get_home_area(State),
-    Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time()} || Id <- lists:seq(0,Num-1)],
-    Drones_ID = [{Id, drone_statem:start_link(Drone, Borders)} || #drone{id=Id}=Drone <- Drones_States],
+    Drones_States = [#drone{id=Id,location=GS_location,gs_server=node(),time_stamp=get_time(), borders = Borders} || Id <- lists:seq(0,Num-1)],
+    Drones_ID = [{Id, drone_statem:start_link(Drone)} || #drone{id=Id}=Drone <- Drones_States],
     Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,  {_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
     logger("3"),
-    [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- ['gs1@localhost','gs2@localhost','gs3@localhost','gs4@localhost'],Server =/= node()],
+    [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- nodes()],
     [ets:insert(gs_ets, {ID,Drone})|| {ID,Drone} <- Drones_ID_updated],
     set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
@@ -87,7 +87,7 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =Stat
 
 handle_call({set_waypoints, Waypoints}, _From, State) ->
     % io:format("Setting waypoints: ~p~n", [Waypoints]),
-    update_kv_in_drone(0, waypoints_stack, Waypoints),
+    send_to_drone(0, {waypoints_stack, Waypoints}),
     {reply, ok, State};
 
 
@@ -96,7 +96,8 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 handle_call({create_drone, ID, Drone_state, Next_area}, _From, State) -> % todo update to work with areas
     io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
-    {ok, PID} = drone_statem:rebirth(Drone_state, Next_area),
+    {ok, PID} = drone_statem:rebirth(Drone_state#drone{borders = Next_area, gs_server=node()}),
+
     % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     set_pid(ID,PID),
     % ets:insert(gs_ets, {ID, PID}),%TODO: pull record and update pID
@@ -214,13 +215,13 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
             io:format("No drones lost~n"),
             {noreply, State#state{all_areas = New_Areas}};
         true->
-            Borders = [assign_area(X,All_Areas)|| #drone{location={X,_}} <- Lost_Drones],% assign the proper borders for each drone (could be differenet if gs have more then 1 area)
-            New_PIDS = [drone_statem:start_link(Drone_state, Border)||{Drone_state,{_,Border}} <- lists:zip(Lost_Drones,Borders)],% rebirth the drones
-            Drones_ID_updated =[{ID,Drone}|| {#drone{id=ID,pid=PID}=Drone,{_,PID}} <-lists:zip(Lost_Drones,New_PIDS)],
-            [set_pid(ID,PID)|| {ID,{_,PID}} <- lists:zip(lists:seq(0,NOF-1),New_PIDS)],% update the ets with the new pids
-            [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated})|| Server <- nodes(),Server =/= node(),Server=/=Node],
+            New_PIDS = [drone_statem:rebirth(Drone_state#drone{gs_server=node()})||Drone_state <- Lost_Drones],% rebirth the drones
+            Drones_ID_updated =[{ID,Drone#drone{pid=PID}}   || {#drone{id=ID}=Drone, {_,PID}} <-lists:zip(Lost_Drones,New_PIDS)],
+            [set_pid(ID,PID) || {ID,{_,PID}} <- lists:zip(lists:seq(0,NOF-1),New_PIDS)],% update the ets with the new pids
+            [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated}) || Server <- nodes()],
             io:format("Lost drones: ~p~n", [Lost_Drones]),
             set_followers(NOF),
+            
             {noreply, State#state{all_areas = New_Areas}}
         end;
 
@@ -319,18 +320,15 @@ set_followers(Num) ->
     % io:format("Setting followers~n"),
     Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
     Drone_neighbors_PIDs = [get_followers_PIDs(Neighbor_IDs) || Neighbor_IDs <- Drone_neighbors],
-    [update_kv_in_drone(ID, followers, PIDs) || {ID,PIDs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)].
+    [send_to_drone(ID, {update_followers,  ID_PID_Pairs}) || {ID, ID_PID_Pairs} <- lists:zip(lists:seq(0,Num-1), Drone_neighbors_PIDs)].
 
 send_target_to_drone(ID, Target) ->
     send_to_drone(ID, {add_target, Target}).
 
-update_kv_in_drone(ID, Key, Value) ->
-    % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
-    send_to_drone(ID, {update_value, {Key,Value}}).
 
 send_to_drone(ID, Message) ->
     % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
-    % io:format("sending message ~p to drone ~p~n", [Message, ID]),
+    io:format("sending message ~p to drone ~p~n", [Message, ID]),
     case get_pid(ID) of
         PID when is_pid(PID) ->
             gen_statem:cast(PID, Message),
