@@ -2,7 +2,7 @@
 -include("../../project_def.hrl").
 -behaviour(gen_server).
 
--export([start_link/0]).
+-export([start_link/0,start_link/1]).
 
 %% gen_server callbacks
 -export([init/1,
@@ -20,10 +20,13 @@
 -record(state, {gs_id, num_of_drones, data_stack=[], gs_location, all_areas}).
 
 
+start_link(_) ->
+    gen_server:start_link({local, ?MODULE}, ?MODULE, [ask_for_restoration], []).
 
 
 start_link() ->
     gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
+
 
 
 
@@ -35,7 +38,30 @@ init([]) ->
     wait_for_gui(GS_location),
     logger("1"),
     start_monitor(),
-    {ok, #state{gs_id = GS_ID, all_areas=All_Areas, gs_location = GS_location}}.
+    {ok, #state{gs_id = GS_ID, all_areas=All_Areas, gs_location = GS_location}};
+
+init([Atom])->
+    case Atom of
+        ask_for_restoration ->
+            {ok, GS_ID} = extract_number(node()),
+            [Node|_]=nodes(),
+            case Node of
+                [] ->
+                    io:format("ERROR: no nodes to back up found~n"),
+                    init([]);
+                _ ->
+                    {ok,ETS,#state{num_of_drones=NOF,all_areas=All_Areas}=_} = gen_server:call({gs_server,Node},{ask_for_restoration}),
+                    ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
+                    [ets:insert(gs_ets, {ID, Drone})|| {ID,Drone} <- ETS],
+                    GS_location = get_gs_location(),
+                    wait_for_gui(GS_location),
+                    logger("1"),
+                    start_monitor(),
+                    {ok, #state{gs_id = GS_ID,num_of_drones=NOF, all_areas=All_Areas, gs_location = GS_location}}
+            end;   
+        _ ->
+            init([])
+    end.
 
 
 
@@ -117,8 +143,10 @@ handle_call({create_drone, ID, Drone_state, Next_area}, _From, State) -> % todo 
 handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
     {Next_GS,Next_area} = check_borders(Location, State),
     if 
-        Next_GS == no_crossing -> % todo debug: send new internal area to drone ->
-            {reply, {change_area, Next_area},State};
+                                     % todo debug: send new internal area to drone ->
+        Next_GS == no_crossing ->
+            % exit(normal),
+            {reply, {change_area, Next_area},State};    
         true ->
             % io:format("Drone ~p is crossing border~n", [ID]),
             logger("1"),
@@ -155,6 +183,9 @@ handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the 
         [] ->
             {reply, {error, not_found}, State}
     end;
+handle_call(ask_for_restoration, _From, State) ->
+    ETS = ets:tab2list(gs_ets),
+    {reply, {ok,ETS, State}, State};
 
 handle_call(_Request, _From, State) ->
     io:format("Unknown message: ~p~n", [_Request]),

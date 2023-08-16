@@ -22,7 +22,7 @@ start(_StartType, _StartArgs) ->
     {ok, SupPid} = gui_pc_sup:start_link(),
     Port_erl2py = 8000,
     Port_py2erl = 8001,
-    % start_python_gui(Port_erl2py,Port_py2erl),
+    start_python_gui(Port_erl2py,Port_py2erl),
     gui_server:start_link(Port_erl2py,Port_py2erl),
     {ok, SupPid}.
 

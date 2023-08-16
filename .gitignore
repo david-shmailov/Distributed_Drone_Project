@@ -27,3 +27,4 @@ src/sender.erl
 /GUI/testing_socket.py
 gs_pc/Mnesia.*
 gui_pc/Mnesia.*
+gs_pc/gs_args.args

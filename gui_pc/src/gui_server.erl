@@ -96,7 +96,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 send_stack_to_gui([Drone| Rest], State) ->
-    io:format("Drone: ~p~n", [Drone]),
+    % io:format("Drone: ~p~n", [Drone]),
     Binary = drone_to_binary(Drone),
     send_to_gui(Binary, State),
     % todo stress check to see if we need to add a delay
