@@ -83,20 +83,13 @@ handle_call({establish_comm, _}, _From, State) ->
 handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =State) -> % todo debug- replace borders with proper area
     io:format("Launching ~p drones~n", [Num]),
     Borders = get_home_area(State),
-    io:format("Launching ~p drones~n", [Num]),
     Drones_States = [#drone{id=Id,location=GS_location, gs_server=node(),time_stamp=get_time(), borders = Borders} || Id <- lists:seq(0,Num-1)],
-    io:format("Launching ~p drones~n", [Num]),
     Drones_ID = [{Id, drone_statem:start_link(Drone)} || #drone{id=Id}=Drone <- Drones_States],
-    io:format("Launching ~p drones~n", [Num]),
     Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,  {_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
-    io:format("Launching ~p drones~n", [Num]),
     logger("3"),
     [gen_server:cast({gs_server,Server},{all_drone_update,Drones_ID_updated})|| Server <- nodes()],
-    io:format("Launching ~p drones~n", [Num]),
     [ets:insert(gs_ets, {ID,Drone})|| {ID,Drone} <- Drones_ID_updated],
-    io:format("Launching ~p drones~n", [Num]),
     set_followers(Num),
-    io:format("Launching ~p drones~n", [Num]),
     {reply, ok, State#state{num_of_drones = Num}};
 
 
@@ -113,6 +106,7 @@ handle_call({create_drone, ID, Drone_state, Next_area}, _From, State) -> % todo 
     io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
     New_Drone_state = Drone_state#drone{borders = Next_area, gs_server=node()},
     {ok, PID} = drone_statem:rebirth(New_Drone_state),
+    logger("4"),
     [gen_server:cast({gs_server,Server},{id_drone_update,[{ID,New_Drone_state#drone{pid=PID}}]}) || Server <- nodes()],
     % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
     set_pid(ID,PID),
@@ -181,6 +175,7 @@ handle_cast({drone_update, #drone{id = ID, gs_server=GS_Server}=Drone}, State) w
     Self_Node= node(),
     if
         GS_Server == Self_Node ->
+            logger("4"),
             [gen_server:cast({gs_server,Server},{drone_update,Drone})|| Server <- nodes()], % todo remove hard coded!
             {noreply,send_to_gui(Drone, State)};
         true->
@@ -206,6 +201,7 @@ handle_cast({id_drone_update,ID_Drone_List}, State) ->
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->
     List_of_PIDs=[get_pid(ID)||ID <- lists:seq(1,Num_of_drones-1),ID =/= 0],
     [gen_statem:cast(PID,{target_found,Target})|| PID <- List_of_PIDs],
+    logger(integer_to_list(length(List_of_PIDs))),
     % append_circle_to_leader(Target),
     {noreply, State};
 
@@ -215,6 +211,7 @@ handle_cast({update_areas,New_Areas}, State) ->
 
 
 handle_cast(Message, State) when is_record(Message, log_message) ->
+    logger("1"),
     gen_server:cast(get_gui_node(), Message),
     {noreply, State};
 
@@ -239,6 +236,7 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
             New_PIDS = [drone_statem:rebirth(Drone_state#drone{gs_server=node()})||Drone_state <- Lost_Drones],% rebirth the drones
             Drones_ID_updated =[{ID,Drone#drone{pid=PID}}   || {#drone{id=ID}=Drone, {_,PID}} <-lists:zip(Lost_Drones,New_PIDS)],
             [set_pid(ID,PID) || {ID,{_,PID}} <- lists:zip(lists:seq(0,NOF-1),New_PIDS)],% update the ets with the new pids
+            logger("4"),
             [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated}) || Server <- nodes()],
             set_followers(NOF)     
         end,
@@ -263,6 +261,7 @@ wait_for_gui(GS_location) ->
     
     try
         gen_server:call(get_gui_node(), {establish_comm, node(), GS_location}),
+        logger("1"),
         io:format("GUI is up~n")
     catch
         exit:{{nodedown, _},_} ->
@@ -461,6 +460,7 @@ append_circle_to_leader({X,Y})->
             ets:insert(gs_ets,{{X,Y},target_found}),
             Leader_PID = get_pid(0),%ets:lookup(gs_ets,0),
             List_Of_Points = [{{X+?SERACH_RADIUS*math:cos(Theta),Y+?SERACH_RADIUS*math:sin(Theta)},circle} || Theta <- [math:pi()*K/8|| K <- lists:seq(0,16)]],
+            logger("1"),
             gen_statem:cast(Leader_PID,{append_circle,List_Of_Points})
         end.
 
@@ -521,6 +521,7 @@ expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}) ->
             % add backup areas to my areas
             My_New_Areas = MyAreas ++ BackupAreas,
             New_Areas = lists:keyreplace(MyGS, 1, Areas_Without_Dead_GS, {MyGS, My_New_Areas}),
+            logger("4"),
             [gen_server:cast({'gs_server',GS_NODE}, {update_areas,New_Areas}) || GS_NODE <- nodes()],
             % monitor our new rightmost neighbor
             DeadGS_R_Border = get_rightmost_border_modulu(My_New_Areas),
