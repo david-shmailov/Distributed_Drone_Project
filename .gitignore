@@ -28,3 +28,4 @@ src/sender.erl
 gs_pc/Mnesia.*
 gui_pc/Mnesia.*
 gs_pc/gs_args.args
+gs_pc/gs_args.args

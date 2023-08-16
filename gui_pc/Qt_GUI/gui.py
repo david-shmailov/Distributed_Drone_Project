@@ -13,9 +13,6 @@ import math
 import time
 import json
 
-SIZE = 650
-TIME_TICK = 0.1
-SEARCH_RADIUS = 20
 
 
 
@@ -124,6 +121,7 @@ class DoubleStream(QtCore.QObject):
 class DroneGridApp(QMainWindow):
     def __init__(self, in_port, out_port):
         super().__init__()
+
         self.GUI_folder = os.path.dirname(__file__)
         # Load the UI at runtime
         uic.loadUi(f'{self.GUI_folder}/gui_frontend.ui', self)
@@ -140,7 +138,6 @@ class DroneGridApp(QMainWindow):
         self.plotting = False
         self.targeting = False
         self.connect_signals()
-        self.search_radius = SEARCH_RADIUS
         # Start the socket listener
         self.RT_socket_listener = SocketListener(self.in_port)
         self.RT_socket_listener.droneUpdate.connect(self.update_drone)
@@ -215,8 +212,8 @@ class DroneGridApp(QMainWindow):
         next_wp_item.setBrush(QBrush(Qt.blue))
         next_wp_item.setPos(10000, 10000)
 
-        circle_item = QGraphicsEllipseItem(10000 - self.search_radius, 10000 - self.search_radius,
-                                           2 * self.search_radius, 2 * self.search_radius)
+        circle_item = QGraphicsEllipseItem(10000 - SEARCH_RADIUS, 10000 - SEARCH_RADIUS,
+                                           2 * SEARCH_RADIUS, 2 * SEARCH_RADIUS)
         self.scene.addItem(circle_item)
         self.scene.addItem(drone_label)
         self.scene.addItem(next_wp_item)
@@ -233,8 +230,8 @@ class DroneGridApp(QMainWindow):
             drone_label = self.drones[drone_id]['label']
             drone_label.setPos(x, convert_y_coordinates(y) + self.drone_icon_size) # move the (0,0) point to the center of screen
             circle_item = self.drones[drone_id]['circle']
-            circle_item.setRect(x - self.search_radius, convert_y_coordinates(y) - self.search_radius,
-                                2 * self.search_radius, 2 * self.search_radius)
+            circle_item.setRect(x - SEARCH_RADIUS, convert_y_coordinates(y) - SEARCH_RADIUS,
+                                2 * SEARCH_RADIUS, 2 * SEARCH_RADIUS)
             self.drones[drone_id]['movement'] = (angle, speed)
             self.drones[drone_id]['location'] = (x, y)
         else:
@@ -271,8 +268,8 @@ class DroneGridApp(QMainWindow):
         for drone_id, drone in self.drones.items():
             angle, speed = drone['movement']
             theta = angle * math.pi / 180
-            x = drone['location'][0] + speed * math.cos(theta)
-            y = drone['location'][1] + speed * math.sin(theta)
+            x = drone['location'][0] + speed * math.cos(theta) * STEP_SIZE
+            y = drone['location'][1] + speed * math.sin(theta) * STEP_SIZE
             self.move_drone(drone_id, x, y, angle, speed)
 
     @QtCore.pyqtSlot()
@@ -396,16 +393,27 @@ def create_star(size):
 if __name__ == '__main__':
     # argument parser
     parser = argparse.ArgumentParser(description='Drone GUI')
+    #  [?PORT_ERL2PY,?PORT_PY2ERL, ?WORLD_SIZE, ?TIMEOUT, ?SERACH_RADIUS, ?STEP_SIZE]),
     parser.add_argument('--in_port', type=int, default=8000, help='port number for receiving from gui_pc erlang node',
                         required=False)
     parser.add_argument('--out_port', type=int, default=8001,
                         help='port number for sending to gui_pc erlang node',
                         required=False)
+    parser.add_argument('--world_size', type=int, default=650)
+    parser.add_argument('--timeout', type=int, default=100)
+    parser.add_argument('--search_radius', type=int, default=20)
+    parser.add_argument('--step_size', type=int, default=10)
     args = parser.parse_args()
+    global SIZE, TIME_TICK, SEARCH_RADIUS, STEP_SIZE
+    SIZE = args.world_size
+    TIME_TICK = args.timeout/1000 # convert to seconds
+    SEARCH_RADIUS = args.search_radius
+    STEP_SIZE = args.step_size
+
+
     app = QApplication(sys.argv)
     window = DroneGridApp(args.in_port, args.out_port)
     window.show()
-    # window.move_drone(1, SIZE/2, SIZE/2, 0, 1)
 
 
 

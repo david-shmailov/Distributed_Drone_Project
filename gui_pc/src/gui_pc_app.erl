@@ -20,18 +20,17 @@
 
 start(_StartType, _StartArgs) ->
     {ok, SupPid} = gui_pc_sup:start_link(),
-    Port_erl2py = 8000,
-    Port_py2erl = 8001,
-    start_python_gui(Port_erl2py,Port_py2erl),
-    gui_server:start_link(Port_erl2py,Port_py2erl),
+    start_python_gui(),
+    gui_server:start_link(?PORT_ERL2PY,?PORT_PY2ERL),
     {ok, SupPid}.
 
 stop(_State) ->
     ok.  
 
-start_python_gui(Port_erl2py,Port_py2erl) ->
+start_python_gui() ->
     io:format("Starting python GUI~n"),
-    Command = io_lib:format("python3 Qt_GUI/gui.py --in_port ~p --out_port ~p &", [Port_erl2py,Port_py2erl]),
+    Command = io_lib:format("python3 Qt_GUI/gui.py --in_port ~p --out_port ~p --world_size ~p --timeout ~p --search_radius ~p --step_size ~p &", 
+        [?PORT_ERL2PY,?PORT_PY2ERL, ?WORLD_SIZE, ?TIMEOUT, ?SERACH_RADIUS, ?STEP_SIZE]),
     Str_command = lists:flatten(Command),
     Cmd_Port = open_port({spawn, Str_command}, []),
     Cmd_Port ! {self(), close}.
