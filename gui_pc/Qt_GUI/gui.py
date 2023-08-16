@@ -135,9 +135,14 @@ class DroneGridApp(QMainWindow):
         self.drones = {}
         self.waypoints = []
         self.targets = []
+        self.route_lines = []
         self.plotting = False
         self.targeting = False
         self.connect_signals()
+        self.show_route = self.show_route_check.isChecked()
+        self.show_ids = self.show_ids_check.isChecked()
+        self.show_search = self.show_search_check.isChecked()
+        self.show_follower_wps = self.show_follow_wps_check.isChecked()
         # Start the socket listener
         self.RT_socket_listener = SocketListener(self.in_port)
         self.RT_socket_listener.droneUpdate.connect(self.update_drone)
@@ -158,7 +163,7 @@ class DroneGridApp(QMainWindow):
         self.graphicsView.mouse_clicked.connect(self.mouse_clicked_slot)
         self.plot_button.clicked[bool].connect(self.plot_slot)
         self.place_targets_button.clicked[bool].connect(self.set_targets_slot)
-
+        self.apply_button.clicked.connect(self.apply_settings_slot)
 
     def closeEvent(self, event):
         if hasattr(self, 'move_thread'):
@@ -205,6 +210,7 @@ class DroneGridApp(QMainWindow):
         drone_item = QtWidgets.QGraphicsPolygonItem(triangle)
         drone_item.setBrush(QBrush(Qt.red))
         drone_item.setPos(10000, 10000)
+        drone_item.setZValue(10)
         drone_label = QtWidgets.QGraphicsTextItem(str(drone_id))
         drone_label.setPos(10000, 10000 + self.drone_icon_size)
         star = create_star(self.drone_icon_size*1.2)
@@ -214,6 +220,7 @@ class DroneGridApp(QMainWindow):
 
         circle_item = QGraphicsEllipseItem(10000 - SEARCH_RADIUS, 10000 - SEARCH_RADIUS,
                                            2 * SEARCH_RADIUS, 2 * SEARCH_RADIUS)
+        circle_item.setZValue(9)
         self.scene.addItem(circle_item)
         self.scene.addItem(drone_label)
         self.scene.addItem(next_wp_item)
@@ -224,11 +231,13 @@ class DroneGridApp(QMainWindow):
     def move_drone(self, drone_id, x, y, angle, speed):
         if drone_id in self.drones:
             drone_item = self.drones[drone_id]['obj']
-
             drone_item.setRotation(-angle+90)
             drone_item.setPos(x, convert_y_coordinates(y)) # move the (0,0) point to the center of screen
+
             drone_label = self.drones[drone_id]['label']
             drone_label.setPos(x, convert_y_coordinates(y) + self.drone_icon_size) # move the (0,0) point to the center of screen
+            drone_label.setVisible(self.show_ids)
+
             circle_item = self.drones[drone_id]['circle']
             circle_item.setRect(x - SEARCH_RADIUS, convert_y_coordinates(y) - SEARCH_RADIUS,
                                 2 * SEARCH_RADIUS, 2 * SEARCH_RADIUS)
@@ -239,10 +248,9 @@ class DroneGridApp(QMainWindow):
             self.move_drone(drone_id, x, y, angle, speed)
 
     def move_next_wp(self, drone_id, wp_x, wp_y):
-        if drone_id > 0:
-            return
         if drone_id in self.drones:
             next_wp_item = self.drones[drone_id]['wp']
+            next_wp_item.setZValue(9)
             next_wp_item.setPos(wp_x, convert_y_coordinates(wp_y)) # move the (0,0) point to the center of screen
 
 
@@ -319,6 +327,20 @@ class DroneGridApp(QMainWindow):
         else:
             self.place_targets_button.setStyleSheet("background-color: white")
 
+    @QtCore.pyqtSlot()
+    def apply_settings_slot(self):
+        self.show_route = self.show_route_check.isChecked()
+        self.show_ids = self.show_ids_check.isChecked()
+        self.show_search = self.show_search_check.isChecked()
+        self.show_follower_wps = self.show_follow_wps_check.isChecked()
+        for line in self.route_lines:
+            line.setVisible(self.show_route)
+        for drone_id, drone in self.drones.items():
+            drone['label'].setVisible(self.show_ids)
+            drone['circle'].setVisible(self.show_search)
+            if drone_id > 0:
+                drone['wp'].setVisible(self.show_follower_wps)
+
 
     def add_target(self, x, y):
         if not self.targeting:
@@ -339,17 +361,25 @@ class DroneGridApp(QMainWindow):
         waypoint = QtWidgets.QGraphicsEllipseItem(x - radius / 2, y - radius / 2, radius, radius)
         brush = QtGui.QBrush(QtGui.QColor(0, 255, 0))  # Green color
         waypoint.setBrush(brush)
+        waypoint.setZValue(8)
         self.graphicsView.scene().addItem(waypoint)
         if self.waypoints: # if not empty
             prev_wp = self.waypoints[-1]
-            self.scene.addLine(prev_wp[0], prev_wp[1], x, y, QtGui.QPen(Qt.black, 2, Qt.SolidLine))
+            line = self.scene.addLine(prev_wp[0], prev_wp[1], x, y, QtGui.QPen(Qt.black, 2, Qt.SolidLine))
+            line.setZValue(5)
+            line.setVisible(self.show_route)
+            self.route_lines.append(line)
         self.waypoints.append((x, y))
+
+
 
     def close_route(self):
         first_wp = self.waypoints[0]
         last_wp = self.waypoints[-1]
         if first_wp != last_wp:
-            self.scene.addLine(first_wp[0], first_wp[1], last_wp[0], last_wp[1], QtGui.QPen(Qt.black, 2, Qt.SolidLine))
+            line = self.scene.addLine(first_wp[0], first_wp[1], last_wp[0], last_wp[1], QtGui.QPen(Qt.black, 2, Qt.SolidLine))
+            line.setVisible(self.show_route)
+            self.route_lines.append(line)
 
     def send_data_to_erl_node(self, data):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
@@ -402,7 +432,7 @@ if __name__ == '__main__':
     parser.add_argument('--world_size', type=int, default=650)
     parser.add_argument('--timeout', type=int, default=100)
     parser.add_argument('--search_radius', type=int, default=20)
-    parser.add_argument('--step_size', type=int, default=10)
+    parser.add_argument('--step_size', type=int, default=1)
     args = parser.parse_args()
     global SIZE, TIME_TICK, SEARCH_RADIUS, STEP_SIZE
     SIZE = args.world_size

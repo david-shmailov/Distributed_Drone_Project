@@ -6,12 +6,12 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>940</width>
-    <height>894</height>
+    <width>980</width>
+    <height>899</height>
    </rect>
   </property>
   <property name="windowTitle">
-   <string>MainWindow</string>
+   <string>Drone Control Station</string>
   </property>
   <widget class="QWidget" name="centralwidget">
    <widget class="CustomGraphicsView" name="graphicsView">
@@ -29,7 +29,7 @@
      <rect>
       <x>10</x>
       <y>710</y>
-      <width>921</width>
+      <width>911</width>
       <height>141</height>
      </rect>
     </property>
@@ -37,128 +37,152 @@
      <bool>true</bool>
     </property>
    </widget>
-   <widget class="QComboBox" name="gs_list_combo_box">
+   <widget class="QWidget" name="verticalLayoutWidget">
     <property name="geometry">
      <rect>
       <x>720</x>
-      <y>30</y>
-      <width>171</width>
-      <height>22</height>
+      <y>556</y>
+      <width>191</width>
+      <height>141</height>
      </rect>
     </property>
+    <layout class="QVBoxLayout" name="verticalLayout">
+     <item>
+      <widget class="QLabel" name="label_3">
+       <property name="font">
+        <font>
+         <pointsize>10</pointsize>
+        </font>
+       </property>
+       <property name="text">
+        <string>UI Preferences:</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="show_route_check">
+       <property name="text">
+        <string>Show Route</string>
+       </property>
+       <property name="checked">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="show_ids_check">
+       <property name="text">
+        <string>Show Drone IDs</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="show_search_check">
+       <property name="text">
+        <string>Show Search Radius</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="show_follow_wps_check">
+       <property name="text">
+        <string>Show Followers Waypoints</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="apply_button">
+       <property name="text">
+        <string>Apply</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </widget>
-   <widget class="QLabel" name="label">
+   <widget class="QWidget" name="gridLayoutWidget">
     <property name="geometry">
      <rect>
       <x>720</x>
       <y>10</y>
-      <width>121</width>
-      <height>16</height>
+      <width>241</width>
+      <height>161</height>
      </rect>
     </property>
-    <property name="text">
-     <string>Select Ground Station</string>
-    </property>
-   </widget>
-   <widget class="QSpinBox" name="num_of_drones_box">
-    <property name="geometry">
-     <rect>
-      <x>720</x>
-      <y>80</y>
-      <width>81</width>
-      <height>22</height>
-     </rect>
-    </property>
-    <property name="minimum">
-     <number>1</number>
-    </property>
-    <property name="maximum">
-     <number>1000</number>
-    </property>
-    <property name="value">
-     <number>10</number>
-    </property>
-   </widget>
-   <widget class="QLabel" name="label_2">
-    <property name="geometry">
-     <rect>
-      <x>720</x>
-      <y>60</y>
-      <width>111</width>
-      <height>16</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Number of drones</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="launch_button">
-    <property name="enabled">
-     <bool>false</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>820</x>
-      <y>80</y>
-      <width>75</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Launch</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="set_waypoints_button">
-    <property name="enabled">
-     <bool>false</bool>
-    </property>
-    <property name="geometry">
-     <rect>
-      <x>820</x>
-      <y>120</y>
-      <width>101</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Send Waypoints</string>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="plot_button">
-    <property name="geometry">
-     <rect>
-      <x>720</x>
-      <y>120</y>
-      <width>81</width>
-      <height>21</height>
-     </rect>
-    </property>
-    <property name="styleSheet">
-     <string notr="true">
-</string>
-    </property>
-    <property name="text">
-     <string>Plot Route</string>
-    </property>
-    <property name="checkable">
-     <bool>true</bool>
-    </property>
-   </widget>
-   <widget class="QPushButton" name="place_targets_button">
-    <property name="geometry">
-     <rect>
-      <x>720</x>
-      <y>160</y>
-      <width>81</width>
-      <height>23</height>
-     </rect>
-    </property>
-    <property name="text">
-     <string>Set Targets</string>
-    </property>
-    <property name="checkable">
-     <bool>true</bool>
-    </property>
+    <layout class="QGridLayout" name="gridLayout">
+     <item row="2" column="0" colspan="2">
+      <widget class="QComboBox" name="gs_list_combo_box"/>
+     </item>
+     <item row="3" column="0">
+      <widget class="QLabel" name="label_2">
+       <property name="text">
+        <string>Number of drones:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="0">
+      <widget class="QSpinBox" name="num_of_drones_box">
+       <property name="minimum">
+        <number>1</number>
+       </property>
+       <property name="maximum">
+        <number>1000</number>
+       </property>
+       <property name="value">
+        <number>10</number>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="0" colspan="2">
+      <widget class="QLabel" name="label">
+       <property name="text">
+        <string>Ground Station:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="1">
+      <widget class="QPushButton" name="launch_button">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>Launch</string>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="0">
+      <widget class="QPushButton" name="plot_button">
+       <property name="styleSheet">
+        <string notr="true"/>
+       </property>
+       <property name="text">
+        <string>Plot Route</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="6" column="0">
+      <widget class="QPushButton" name="place_targets_button">
+       <property name="text">
+        <string>Set Targets</string>
+       </property>
+       <property name="checkable">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="1">
+      <widget class="QPushButton" name="set_waypoints_button">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="text">
+        <string>Send Waypoints</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </widget>
   </widget>
   <widget class="QMenuBar" name="menubar">
@@ -166,7 +190,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>940</width>
+     <width>980</width>
      <height>21</height>
     </rect>
    </property>

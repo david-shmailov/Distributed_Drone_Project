@@ -1,10 +1,10 @@
 % my_definitions.hrl
 -define(RETRY_DELAY, 1000).
--define(GUI_NODE, 'gui@localhost').
+% -define(GUI_NODE, 'gui@localhost').
 % -define(GUI_NODE, 'gui@172.21.28.158').
 -define(GUI_SERVER, 'gui_server').
 % -define(GUI_GLOBAL, {global, ?GUI_SERVER}).
--define(GUI_GLOBAL, {?GUI_SERVER, ?GUI_NODE}).
+% -define(GUI_GLOBAL, {?GUI_SERVER, ?GUI_NODE}).
 -define(STACK_SIZE, 0). % we might not need aggregation at all 
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*1000).
