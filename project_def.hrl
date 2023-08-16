@@ -15,7 +15,7 @@
 -record(mnesia_record, {id, pid}).
 -record(log_message, {time, source, message}).
 -define(TIMEOUT, 100).
--define(INDENTATION,{0,40}).
+-define(INDENTATION,{0,20}).
 -define(STEP_SIZE,1).
 -define(SERACH_RADIUS,20).
 -define(LOG_NAME,"log.txt").
