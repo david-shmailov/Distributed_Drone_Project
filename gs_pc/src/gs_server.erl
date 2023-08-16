@@ -146,17 +146,15 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
                                      % todo debug: send new internal area to drone ->
         Next_GS == no_crossing ->
             % exit(normal),
+            logger("2"),
             {reply, {change_area, Next_area},State};    
         true ->
             % io:format("Drone ~p is crossing border~n", [ID]),
-            logger("1"),
             case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state, Next_area}) of % todo debug:check that it really is changing the dictionary
                 {ok, New_PID} -> 
                     % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
                     set_pid(ID, New_PID),
-                    % ets:insert(gs_ets, {ID, New_PID}),
-                    logger("3"),
-                    % [gen_server:cast({gs_server,Server},{id_pid_update,[{ID,New_PID}]})|| Server <- nodes(),Server =/= Next_GS],
+                    logger("4"),
                     reupdate_neighbour(ID,New_PID),
                     {reply, terminate, State}; % terminate the old drone
                 _ -> 
@@ -171,6 +169,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
 
 handle_call({dead_neighbour,ID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
     New_Pid=get_pid(ID),
+    logger("2"),
     % [New_Pid]=ets:lookup(gs_ets, ID),
     % io:format("Drone ID: ~p, new PID~p~n", [ID,New_Pid]),
     {reply, {ok,New_Pid}, State};
@@ -206,8 +205,8 @@ handle_cast({drone_update, #drone{id = ID, gs_server=GS_Server}=Drone}, State) w
     Self_Node= node(),
     if
         GS_Server == Self_Node ->
-            logger("4"),
             [gen_server:cast({gs_server,Server},{drone_update,Drone})|| Server <- nodes()], % todo remove hard coded!
+            logger("4"), % 1 msg drone -> GS, 3 msg GS -> GS
             {noreply,send_to_gui(Drone, State)};
         true->
             {noreply,State}
@@ -231,9 +230,8 @@ handle_cast({id_drone_update,ID_Drone_List}, State) ->
 
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->
     List_of_PIDs=[get_pid(ID)||ID <- lists:seq(1,Num_of_drones-1),ID =/= 0],
-    [gen_statem:cast(PID,{target_found,Target})|| PID <- List_of_PIDs],
-    logger(integer_to_list(length(List_of_PIDs))),
-    % append_circle_to_leader(Target),
+    [gen_statem:cast(PID,{target_found,Target}) || PID <- List_of_PIDs],
+    logger(integer_to_list(length(List_of_PIDs)+ 1)),
     {noreply, State};
 
 handle_cast({update_areas,New_Areas}, State) ->
@@ -481,19 +479,6 @@ logger(Message) ->
     Name = lists:flatten(io_lib:format("gs_server gs~p",[Node_ID])),
     Log = #log_message{time=Time, source = Name, message = Message},
     gen_server:cast(get_gui_node() , Log).
-
-append_circle_to_leader({X,Y})->
-    Result = ets:lookup(gs_ets,{X,Y}),
-    case Result of
-        [{{X,Y},target_found}]->
-            ok;
-        []->
-            ets:insert(gs_ets,{{X,Y},target_found}),
-            Leader_PID = get_pid(0),%ets:lookup(gs_ets,0),
-            List_Of_Points = [{{X+?SERACH_RADIUS*math:cos(Theta),Y+?SERACH_RADIUS*math:sin(Theta)},circle} || Theta <- [math:pi()*K/8|| K <- lists:seq(0,16)]],
-            logger("1"),
-            gen_statem:cast(Leader_PID,{append_circle,List_Of_Points})
-        end.
 
 get_time()->%%in milliseconds-needs to be verified
     erlang:monotonic_time(millisecond).

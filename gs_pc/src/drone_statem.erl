@@ -68,7 +68,6 @@ init([#drone{id = ID, location = Location, theta = Theta }=Internal_state]) ->
             Indentation = indentation_update(ID)
     end,
     update_gs(Internal_state),
-    logger(ID, "1"),
     New_internal_state = Internal_state#drone{pid = self(),next_waypoint= {Location, Theta}, state= State, indentation = Indentation},
     % put(internal_state, New_internal_state),
     {ok, State, New_internal_state,[{state_timeout, ?TIMEOUT, time_tick}]}.
@@ -326,19 +325,17 @@ update_neighbors([], _, _,#drone{followers = Followers}) ->
 update_neighbors([{Neighbor_ID,PID}|T], Location, Theta, #drone{id=ID} = Internal_state)-> % returns new followers list
     try
         % io:format("calling ~p~n",[PID]),
-        logger(ID,"1"),
         gen_statem:call(PID, {vector_update, {Location,Theta}}), % returns call dirty after returning to GS1 from GS4 and trying to update
+        logger(ID,"2"),
         update_neighbors(T, Location, Theta,Internal_state)
     catch
         exit:{noproc, _} ->
             % io:format("Requesting new PID~n"),
-            logger(ID,"1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             Updated_Neighbors = replace_dead_neighbour(Neighbor_ID,New_PID,Internal_state),
             update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta,Internal_state#drone{followers = Updated_Neighbors});
         Error:Kind->
             io:format("Error in update_neighbors~n~p:~p~n",[Error,Kind]),
-            logger(ID,"1"),
             {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
             Updated_Neighbors = replace_dead_neighbour(Neighbor_ID,New_PID,Internal_state),
             update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta, Internal_state#drone{followers = Updated_Neighbors})
@@ -350,8 +347,7 @@ replace_dead_neighbour(ID, New_PID,  #drone{followers= Neighbors}) ->
 
 
 update_gs(#drone{id=ID} = Internal_state) ->
-    gen_server:cast(gs_server, {drone_update, Internal_state#drone{pid=self(),gs_server=node(),time_stamp=get_time()}}),
-    logger(ID,"1").
+    gen_server:cast(gs_server, {drone_update, Internal_state#drone{pid=self(),gs_server=node(),time_stamp=get_time()}}).
 
 check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) ->
     #area{left_border=Left,right_border=Right}=Border_record,
@@ -365,7 +361,6 @@ check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) 
 
 
 cross_border(#drone{id=ID, location=Location}=Internal_state) ->
-    logger(ID,"1"),
     gen_server:call(gs_server, {crossing_border, ID, Location,Internal_state#drone{time_stamp=get_time()}}, infinity).
 
 
@@ -404,5 +399,4 @@ get_time()->%%in milliseconds-needs to be verified
 found_target(Target, #drone{id = ID, targets= Targets}) ->
     io:format("Drone ~p , found target at ~p~n",[ID,Target]), % todo
     gen_server:cast(gs_server, {target_found, Target}),
-    logger(ID,"1"),
     {found, lists:delete(Target, Targets)}.

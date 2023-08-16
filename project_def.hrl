@@ -8,17 +8,21 @@
 -define(STACK_SIZE, 0). % we might not need aggregation at all 
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*1000).
+-define(TIMEOUT, 100).
+-define(INDENTATION,{0,20}).
+-define(STEP_SIZE,1).
+-define(SERACH_RADIUS,20).
+-define(LOG_NAME,"log.txt").
+-define(PORT_ERL2PY, 8000).
+-define(PORT_PY2ERL, 8001).
+
+
 -record(drone, {id, location, theta=0, speed=0, pid = undefined, next_waypoint={{0,0},0},
     gs_server=undefined,time_stamp=undefined, state = slave, borders = undefined, targets = [],
     waypoints_stack = [], indentation = {0,0}, followers = []}).
 -record(area, {left_border, right_border}).
 -record(mnesia_record, {id, pid}).
 -record(log_message, {time, source, message}).
--define(TIMEOUT, 100).
--define(INDENTATION,{0,20}).
--define(STEP_SIZE,1).
--define(SERACH_RADIUS,20).
--define(LOG_NAME,"log.txt").
 % -export([get_time/0]).
 % get_time()->%%in milliseconds-needs to be verified
 %     {MegaSecs, Secs, MicroSecs} = os:system_time(),
