@@ -8,13 +8,15 @@
 -define(STACK_SIZE, 0). % we might not need aggregation at all 
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*1000).
--define(TIMEOUT, 100).
+-define(TIMEOUT, 400).
 -define(INDENTATION,{0,20}).
--define(STEP_SIZE,1).
+-define(STEP_SIZE,4).
 -define(SERACH_RADIUS,20).
 -define(LOG_NAME,"log.txt").
 -define(PORT_ERL2PY, 8000).
 -define(PORT_PY2ERL, 8001).
+-define(MAX_THETA, math:pi()/8).
+-define(DEBUG_MODE, false).
 
 
 -record(drone, {id, location, theta=0, speed=0, pid = undefined, next_waypoint={{0,0},0},

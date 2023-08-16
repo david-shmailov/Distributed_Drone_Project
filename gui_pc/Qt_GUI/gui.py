@@ -15,6 +15,8 @@ import json
 
 
 
+Smoothing_factor = 0.25 # this factor makes the movement of the drones smoother
+
 
 class XWidget(QWidget):
     def __init__(self, parent=None):
@@ -58,7 +60,7 @@ class TimingGenerator(QThread):
     def run(self):
         while self.running:
             self.time_tick_signal.emit()
-            time.sleep(TIME_TICK)
+            time.sleep(TIME_TICK*Smoothing_factor)
 
     def stop(self):
         self.running = False
@@ -239,6 +241,7 @@ class DroneGridApp(QMainWindow):
             drone_label.setVisible(self.show_ids)
 
             circle_item = self.drones[drone_id]['circle']
+            circle_item.setVisible(self.show_search)
             circle_item.setRect(x - SEARCH_RADIUS, convert_y_coordinates(y) - SEARCH_RADIUS,
                                 2 * SEARCH_RADIUS, 2 * SEARCH_RADIUS)
             self.drones[drone_id]['movement'] = (angle, speed)
@@ -250,8 +253,11 @@ class DroneGridApp(QMainWindow):
     def move_next_wp(self, drone_id, wp_x, wp_y):
         if drone_id in self.drones:
             next_wp_item = self.drones[drone_id]['wp']
+            if drone_id > 0:
+                next_wp_item.setVisible(self.show_follower_wps)
             next_wp_item.setZValue(9)
             next_wp_item.setPos(wp_x, convert_y_coordinates(wp_y)) # move the (0,0) point to the center of screen
+
 
 
 
@@ -276,8 +282,8 @@ class DroneGridApp(QMainWindow):
         for drone_id, drone in self.drones.items():
             angle, speed = drone['movement']
             theta = angle * math.pi / 180
-            x = drone['location'][0] + speed * math.cos(theta) * STEP_SIZE
-            y = drone['location'][1] + speed * math.sin(theta) * STEP_SIZE
+            x = drone['location'][0] + speed * math.cos(theta) * STEP_SIZE*Smoothing_factor
+            y = drone['location'][1] + speed * math.sin(theta) * STEP_SIZE*Smoothing_factor
             self.move_drone(drone_id, x, y, angle, speed)
 
     @QtCore.pyqtSlot()

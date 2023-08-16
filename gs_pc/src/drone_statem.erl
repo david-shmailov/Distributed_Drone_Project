@@ -154,7 +154,8 @@ leader(state_timeout,_From , #drone{followers = Followers, location = Location, 
             New_followers = Followers;
         Distance_to_waypoint>=?STEP_SIZE ->
             New_Internal_state = step(leader,Internal_state),
-            New_followers = Followers;
+            New_followers = Followers,
+            debug_update(Internal_state);
         true ->
             Temp_Internal = next_waypoint(Internal_state),
             New_Internal_state = step(leader,Temp_Internal),
@@ -267,7 +268,7 @@ calculate_interception_point({{WP_X,WP_Y}, WP_Theta}=Waypoint, Position) ->
 calculate_speed(#drone{next_waypoint= Waypoint, location = Location, speed = Current_speed}) ->
     Distance_to_waypoint = get_distance(Waypoint,Location),
     if
-        Distance_to_waypoint > ?STEP_SIZE ->% speed must not be larger than 2!!! otherwise unstable system
+        Distance_to_waypoint > ?STEP_SIZE*2 ->% speed must not be larger than 2!!! otherwise unstable system
             2;
         Distance_to_waypoint < ?STEP_SIZE andalso Current_speed == 0 -> % might be problematic we need a range
             0;
@@ -283,11 +284,34 @@ increment_waypoint(#drone{next_waypoint={{_,_}, Theta} , location= {X,Y}})->
     New_Y = Y+?STEP_SIZE*math:sin(Theta),
     {{New_X,New_Y},Theta}. %return new waypoint
 
+max_theta(New_Theta, Old_Theta) ->
+    New_Theta.
+    % Pi = math:pi(),
+    % if 
+    %     New_Theta > Pi ->
+    %         Normalized = New_Theta - 2*Pi;
+    %     New_Theta < -Pi ->
+    %         Normalized = New_Theta + 2*Pi;
+    %     true ->
+    %         Normalized = New_Theta
+    % end,
+    % Max_Counter_clockwise = Old_Theta + ?MAX_THETA,
+    % Max_clockwise = Old_Theta - ?MAX_THETA,
+    % if 
+    %     Normalized > Max_Counter_clockwise ->
+    %         Max_Counter_clockwise;
+    %     Normalized < Max_clockwise ->
+    %         Max_clockwise;
+    %     true ->
+    %         Normalized
+    % end.
 
-step(leader, #drone{location = {X,Y}} = Internal_state)->
-    Theta = get_theta_to_wp(Internal_state),
-    New_Location = {X+?STEP_SIZE*math:cos(Theta),Y+?STEP_SIZE*math:sin(Theta)}, %update location
-    Internal_state#drone{location=New_Location, speed=1, theta = Theta};
+
+step(leader, #drone{location = {X,Y}, theta=Theta} = Internal_state)->
+    New_Theta = get_theta_to_wp(Internal_state),
+    Cappted_Theta = max_theta(New_Theta, Theta),
+    New_Location = {X+?STEP_SIZE*math:cos(Cappted_Theta),Y+?STEP_SIZE*math:sin(Cappted_Theta)}, %update location
+    Internal_state#drone{location=New_Location, speed=1, theta = Cappted_Theta};
 
 
 step(slave, #drone{speed= Old_speed, theta = Old_theta, location={X,Y}, next_waypoint= Waypoint} = Internal_state)->
@@ -302,13 +326,14 @@ step(slave, #drone{speed= Old_speed, theta = Old_theta, location={X,Y}, next_way
             New_waypoint = Waypoint
     end,
     New_Theta = get_theta_to_wp(Internal_state#drone{next_waypoint = New_waypoint}),
-    New_Location = {X+New_Speed*?STEP_SIZE*math:cos(New_Theta), Y+New_Speed*?STEP_SIZE*math:sin(New_Theta)},
-    New_internal_state = Internal_state#drone{location=New_Location, theta = New_Theta, speed= New_Speed, next_waypoint=New_waypoint},
+    Cappted_Theta = max_theta(New_Theta, Old_theta),
+    New_Location = {X+New_Speed*?STEP_SIZE*math:cos(Cappted_Theta), Y+New_Speed*?STEP_SIZE*math:sin(Cappted_Theta)},
+    New_internal_state = Internal_state#drone{location=New_Location, theta = Cappted_Theta, speed= New_Speed, next_waypoint=New_waypoint},
     if
-        Old_theta /= New_Theta orelse Old_speed/=New_Speed ->
+        Old_theta /= Cappted_Theta orelse Old_speed/=New_Speed ->
             update_gs(New_internal_state);
         true ->
-            ok
+            debug_update(New_internal_state)
     end,
     New_internal_state.
 
@@ -400,3 +425,12 @@ found_target(Target, #drone{id = ID, targets= Targets}) ->
     io:format("Drone ~p , found target at ~p~n",[ID,Target]), % todo
     gen_server:cast(gs_server, {target_found, Target}),
     {found, lists:delete(Target, Targets)}.
+
+
+debug_update(Internal_state) ->
+    case ?DEBUG_MODE of
+        true ->
+            update_gs(Internal_state);
+        false ->
+            ok
+    end.
