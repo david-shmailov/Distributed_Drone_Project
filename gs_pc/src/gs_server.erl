@@ -205,7 +205,7 @@ handle_call(_Request, _From, State) ->
 
 
 handle_cast({all_drone_update, ID_Drone_List}, State) ->
-    [ets:insert(gs_ets, {ID, Drone})|| {ID,Drone} <- ID_Drone_List],
+    [ets:insert(gs_ets, {ID, Drone#drone{time_stamp=get_time()}})|| {ID,Drone} <- ID_Drone_List],
     Num_of_drones = length(ID_Drone_List),
     {noreply, State#state{num_of_drones = Num_of_drones}};
 
@@ -214,7 +214,7 @@ handle_cast({all_drone_update, ID_Drone_List}, State) ->
 
 handle_cast({drone_update, #drone{id = ID, gs_server=GS_Server}=Drone}, State) when is_record(Drone,drone) ->
     % io:format("Drone update: ~p~n", [Drone]),
-    ets:insert(gs_ets, {ID, Drone}),
+    ets:insert(gs_ets, {ID, Drone#drone{time_stamp=get_time()}}),
     Self_Node= node(),
     if
         GS_Server == Self_Node ->
@@ -233,7 +233,7 @@ handle_cast({aquire_target,Target}, #state{num_of_drones = Nof_Drones} = State) 
 
 
 handle_cast({id_pid_update,ID_PID_LIST}, State) ->
-    io:format("ID PID update: ~p~n", [ID_PID_LIST]),
+    % io:format("ID PID update: ~p~n", [ID_PID_LIST]),
     id_pid_insertion(ID_PID_LIST),
     Num_of_drones = length(ID_PID_LIST),
     {noreply, State#state{num_of_drones = Num_of_drones}};
@@ -549,7 +549,7 @@ drone_restore_state(ID)-> %returns the approximation of drone state
             % New_location = {Old_X, Old_Y}, % for debug to disable location approximation
             Drone#drone{location=New_location,time_stamp=Current_time_stamp};
         [] ->
-            io:format("restore_drone:Drone ~p not found~n", [ID])
+            io:format("restore_drone: Drone ~p not found~n", [ID])
     end.
 
 
@@ -559,23 +559,16 @@ expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}=State) ->
     {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
     {DeadGS, BackupAreas}  = lists:keyfind(DeadGS, 1, All_Areas),
     Curr_R_Border = get_rightmost_border_modulu(MyAreas),
-    io:format("Current right border: ~p~n", [Curr_R_Border]),
-    io:format("all areas: ~p~n", [All_Areas]),
     
     % If the dead GS is not the GS we backup, return false.
     % remove old area
     Areas_Without_Dead_GS = lists:keydelete(DeadGS, 1, All_Areas),
     % add backup areas to my areas
-    io:format("Backup areas: ~p~n", [BackupAreas]),
-    io:format("Areas_without_dead_gs: ~p~n", [Areas_Without_Dead_GS]),
     My_New_Areas = MyAreas ++ BackupAreas,
-    io:format("My new areas: ~p~n", [My_New_Areas]),
     New_Areas = lists:keyreplace(MyGS, 1, Areas_Without_Dead_GS, {MyGS, My_New_Areas}),
-    io:format("New areas: ~p~n", [New_Areas]),
     logger(to_server,"4"),
     [gen_server:cast({'gs_server',GS_NODE}, {update_areas,New_Areas}) || GS_NODE <- nodes()],
     New_Backup_Node = get_next_node(filter_and_sort_nodes(), MyGS),
-    % io:format("New backup GS: ~p~n", [New_Backup_Node]),
     State#state{node_to_monitor=New_Backup_Node, all_areas=New_Areas}.
 
 

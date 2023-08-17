@@ -175,7 +175,7 @@ leader(state_timeout,_From , #drone{followers = Followers, location = Location, 
         ok -> 
             {keep_state, New_Internal_state#drone{targets = New_Targets, followers = New_followers},[{state_timeout, ?TIMEOUT, time_tick}]};
         {change_area, New_Area}->
-            io:format("got new area ~p~n",[New_Area]),
+            % io:format("got new area ~p~n",[New_Area]),
             {keep_state, New_Internal_state#drone{borders = New_Area, targets = New_Targets, followers = New_followers},[{state_timeout, ?TIMEOUT, time_tick}]};
         terminate ->
             {stop, normal, New_Internal_state#drone{targets = New_Targets, followers = New_followers}}
