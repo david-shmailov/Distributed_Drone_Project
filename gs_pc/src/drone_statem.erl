@@ -29,6 +29,7 @@ start_link(Drone) when is_record(Drone,drone)  ->
 start(Drone) when is_record(Drone,drone)  ->
     gen_statem:start(?MODULE, [Drone], []).
 
+
 rebirth(State)->
     % gen_statem:start(?MODULE, [rebirth, State, Borders], []).
     % io:format("rebirth Drone state:~p~n",[State]),
@@ -340,7 +341,9 @@ step(slave, #drone{speed= Old_speed, theta = Old_theta, location={X,Y}, next_way
 
 
 
-
+% handle_info({'EXIT', FromPid, Reason}, State) when is_record(State,drone) ->
+%     cross_border(State),
+%             {keep_state, State}.
 
 update_neighbors(Location, Theta, #drone{followers= Followers} = Internal_state)->
     update_neighbors(Followers, Location, Theta, Internal_state).
@@ -386,7 +389,13 @@ check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) 
 
 
 cross_border(#drone{id=ID, location=Location}=Internal_state) ->
-    gen_server:call(gs_server, {crossing_border, ID, Location,Internal_state#drone{time_stamp=get_time()}}, infinity).
+    % try
+        gen_server:call(gs_server, {crossing_border, ID, Location,Internal_state#drone{time_stamp=get_time()}}, infinity).
+    % catch
+    %     exit:{noproc, _} ->
+    %         timer:sleep(1000),
+    %         cross_border(Internal_state)
+    %         end.
 
 
 

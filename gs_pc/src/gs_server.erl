@@ -44,15 +44,20 @@ init([Atom])->
     case Atom of
         ask_for_restoration ->
             {ok, GS_ID} = extract_number(node()),
-            [Node|_]=nodes(),
+            Node=get_some_node(),%todo create a more stable way to get some node that isnt gui
+            io:format("trying to get data from~p~n",[Node]),
             case Node of
                 [] ->
                     io:format("ERROR: no nodes to back up found~n"),
                     init([]);
                 _ ->
-                    {ok,ETS,#state{num_of_drones=NOF,all_areas=All_Areas}=_} = gen_server:call({gs_server,Node},{ask_for_restoration}),
+                    {ok,ETS,#state{num_of_drones=NOF,all_areas=All_Areas}=_} = gen_server:call({gs_server,Node},ask_for_restoration),
                     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
                     [ets:insert(gs_ets, {ID, Drone})|| {ID,Drone} <- ETS],
+                    My_drones = retrieve_all_drones(node(), #state{num_of_drones=NOF,all_areas=All_Areas}),
+                    TerminatePidList = [State#drone.pid || State <- My_drones],
+                    lists:foreach(fun(PID)-> gen_statem:stop(PID) end, TerminatePidList),
+                    [drone_statem:rebirth(State)|| State <- My_drones], 
                     GS_location = get_gs_location(),
                     wait_for_gui(GS_location),
                     logger("1"),
@@ -122,6 +127,7 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =Stat
 handle_call({set_waypoints, Waypoints}, _From, State) ->
     % io:format("Setting waypoints: ~p~n", [Waypoints]),
     send_to_drone(0, {waypoints_stack, Waypoints}),
+    % erlang:send_after(15000, self(), kaki),% only for debugging restoration of gs
     {reply, ok, State};
 
 
@@ -184,6 +190,7 @@ handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the 
     end;
 handle_call(ask_for_restoration, _From, State) ->
     ETS = ets:tab2list(gs_ets),
+    io:format("asked for restoration~n"),
     {reply, {ok,ETS, State}, State};
 
 handle_call(_Request, _From, State) ->
@@ -250,6 +257,7 @@ handle_cast(_Msg, State) ->
     {noreply, State}.
 
 handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=State) ->
+
     io:format("Node ~p went down!~n", [Node]),
     %% Handle the node down event as needed
     {ok, DeadGS} = extract_number(Node),
@@ -274,6 +282,7 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
 
 
 handle_info(_Info, State) ->
+    exit(normal),
     {noreply, State}.
 
 terminate(_Reason, _State) ->
@@ -543,6 +552,7 @@ expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}) ->
             % monitor our new rightmost neighbor
             DeadGS_R_Border = get_rightmost_border_modulu(My_New_Areas),
             {New_Backup, _} = find_adjacent_GS(New_Areas, DeadGS_R_Border), 
+            io:format("MyRightMOD= ~p, DeadGSRightMODBORDER= ~p, NewBackup= ~p~n", [Curr_R_Border, DeadGS_R_Border, New_Backup]),
             New_Backup_Node = number_to_gs(New_Backup),
             monitor_node(New_Backup_Node, true),
             {true,  New_Areas}
@@ -647,4 +657,17 @@ get_gui_node() ->
         [Node] -> {?GUI_SERVER, Node}; % If there's exactly one matching node
         [] -> undefined; % If no nodes match
         _ -> {error, multiple_matches} % If there are multiple matches, which shouldn't happen
+    end.
+get_some_node() ->
+    Pattern = io_lib:format("gui@", []),
+    MatchingNodes = lists:filter(fun(Node) -> 
+        case re:run(atom_to_list(Node), Pattern) of
+            {match, _} -> false; 
+            nomatch -> true
+        end
+    end, nodes()),
+    case MatchingNodes of
+        [Node|_] -> Node; % If there's exactly one matching node
+        [] -> undefined % If no nodes match
+             % If there are multiple matches, which shouldn't happen
     end.
