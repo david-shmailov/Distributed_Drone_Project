@@ -1,5 +1,4 @@
 % my_definitions.hrl
--define(RETRY_DELAY, 1000).
 % -define(GUI_NODE, 'gui@localhost').
 % -define(GUI_NODE, 'gui@172.21.28.158').
 -define(GUI_SERVER, 'gui_server').
@@ -9,6 +8,7 @@
 -define(WORLD_SIZE,650).
 -define(INFINITY, ?WORLD_SIZE*1000).
 -define(TIMEOUT, 400).
+-define(RETRY_DELAY, ?TIMEOUT*2).
 -define(INDENTATION,{0,20}).
 -define(STEP_SIZE,4).
 -define(SERACH_RADIUS,20).

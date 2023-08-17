@@ -31,9 +31,9 @@ drone_values = [data['drone'] for data in time_sums.values()]
 total_values = [data['total'] for data in time_sums.values()]
 
 # Plot the data
-plt.plot(timestamps, gs_server_values, label='GS Server')
-plt.plot(timestamps, drone_values, label='Drone')
-plt.plot(timestamps, total_values, label='Total')
+plt.plot(timestamps, gs_server_values, label='Drone/GS Server')
+plt.plot(timestamps, drone_values, label='Drone/Drone')
+# plt.plot(timestamps, total_values, label='Total')
 plt.xlabel('Time')
 plt.ylabel('Message/Second')
 plt.title('Values over Time')

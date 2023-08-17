@@ -128,40 +128,57 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 
 
-handle_call({create_drone, ID, Drone_state, Next_area}, _From, State) -> % todo update to work with areas
-    io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
-    New_Drone_state = Drone_state#drone{borders = Next_area, gs_server=node()},
-    {ok, PID} = drone_statem:rebirth(New_Drone_state),
-    logger("4"),
-    [gen_server:cast({gs_server,Server},{id_drone_update,[{ID,New_Drone_state#drone{pid=PID}}]}) || Server <- nodes()],
-    % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
-    set_pid(ID,PID),
-    % ets:insert(gs_ets, {ID, PID}),%TODO: pull record and update pID
-    {reply, {ok, PID}, State};
-
-
-handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
-    {Next_GS,Next_area} = check_borders(Location, State),
-    if 
-                                     % todo debug: send new internal area to drone ->
-        Next_GS == no_crossing ->
-            % exit(normal),
-            logger("2"),
-            {reply, {change_area, Next_area},State};    
+handle_call({create_drone, ID, Drone_state, Next_area, Time_stamp, Node}, _From, State) -> % todo update to work with areas
+    {ok, Current_time_stamp} = gen_server:call({time_server,Node}, get_time), % we must get time fron the same node that the timestamp is created in
+    case Current_time_stamp - Time_stamp > ?RETRY_DELAY of
         true ->
-            % io:format("Drone ~p is crossing border~n", [ID]),
-            case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state, Next_area}) of % todo debug:check that it really is changing the dictionary
-                {ok, New_PID} -> 
-                    % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
-                    set_pid(ID, New_PID),
-                    logger("4"),
-                    reupdate_neighbour(ID,New_PID),
-                    {reply, terminate, State}; % terminate the old drone
-                _ -> 
-                    io:format("ERROR creating drone on neighbor GS ~p~n", [Next_GS]),
-                    {reply, ok, State} % drone creation failed, dont terminate the old drone
+            {reply,{timeout, ok},State}; % throw the old irrelevant message
+        false ->
+            % io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
+            New_Drone_state = Drone_state#drone{borders = Next_area, gs_server=node()},
+            {ok, PID} = drone_statem:rebirth(New_Drone_state),
+            logger("4"),
+            [gen_server:cast({gs_server,Server},{id_drone_update,[{ID,New_Drone_state#drone{pid=PID}}]}) || Server <- nodes()],
+            % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
+            set_pid(ID,PID),
+            {reply, {ok, PID}, State}
+    end;
+
+
+handle_call({crossing_border,ID, Location, #drone{time_stamp = Time_stamp} = Drone_state}, _From, State) ->
+    Current_time_stamp = get_time(), % time here is within the same node, which is synchronized
+    case Current_time_stamp - Time_stamp > ?RETRY_DELAY of
+        true ->
+            {reply,ok,State}; % throw the old irrelevant message
+        false ->
+            {Next_GS,Next_area} = check_borders(Location, State),
+            if 
+                Next_GS == no_crossing ->
+                    logger("2"),
+                    {reply, {change_area, Next_area},State};    
+                true ->
+                    % io:format("Drone ~p is crossing border~n", [ID]),
+                    try 
+                        {Res, New_PID} = gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state, Next_area, get_time(), node()}, ?RETRY_DELAY),
+                        case Res of
+                            timeout -> % in a very rare case where call doesn't timeout but timestamp does.
+                                logger("2"),
+                                {reply, ok, State}; % drone creation failed, dont terminate the old drone, will try again
+                            ok ->
+                                % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
+                                set_pid(ID, New_PID),
+                                logger("4"),
+                                reupdate_neighbour(ID,New_PID),
+                                {reply, terminate, State} % terminate the old drone
+                        end
+                    catch
+                        exit:{timeout, _} ->  % to prevent a deadlock between two GSs
+                            logger("2"),
+                            {reply, ok, State} % drone creation failed, dont terminate the old drone, will try again
+                    end
             end
     end;
+    
 
 
 
@@ -377,7 +394,7 @@ send_target_to_drone(ID, Target) ->
 
 send_to_drone(ID, Message) ->
     % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
-    io:format("sending message ~p to drone ~p~n", [Message, ID]),
+    % io:format("sending message ~p to drone ~p~n", [Message, ID]),
     case get_pid(ID) of
         PID when is_pid(PID) ->
             gen_statem:cast(PID, Message),
