@@ -420,7 +420,7 @@ look_for_target([Target|Rest], #drone{location=Location} = Internal_state)->
 logger(ID,Message) ->
     {_,Time} = calendar:local_time(),
     % make a string of "drone" and Id
-    Name = lists:flatten(io_lib:format("drone ~p",[ID])),
+    Name = lists:flatten(io_lib:format("drone_drone ~p",[ID])),
     Log = #log_message{time=Time, source = Name, message = Message},
     gen_server:cast(gs_server, Log).
 
