@@ -50,8 +50,9 @@ handle_call(_Request, _From, State) ->
     io:format("Unknown message: ~p from ~p ~n", [_Request, _From]),
     {reply, ignored, State}.
 
-handle_cast({target_found,Target}, State) ->
-    io:format("GUI SERVER Anouncment :Target found: ~p~n", [Target]),
+handle_cast({target_found,{X,Y}}, State) ->
+    Command = io_lib:format("target_found,~p,~p", [X,Y]),
+    send_to_gui(Command ,State),
     {noreply, State};
 
 
@@ -138,7 +139,8 @@ handle_gui_msg({add_target, Msg} , #state{gs_nodes = [GS | _]} = State) ->
     case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
         {match, [Target_X, Target_Y]} ->
             % send to first gs in list, which will spread to others
-            gen_server:cast({gs_server, GS}, {aquire_target,{list_to_float(Target_X),list_to_float(Target_Y)}}),
+            GS_Node = hd(nodes()),
+            gen_server:cast({gs_server, GS_Node}, {aquire_target,{list_to_float(Target_X),list_to_float(Target_Y)}}),
             State; % update state
         nomatch ->
             io:format("Invalid waypoint: ~p~n", [Msg]),
@@ -147,8 +149,7 @@ handle_gui_msg({add_target, Msg} , #state{gs_nodes = [GS | _]} = State) ->
 
 
 handle_gui_msg({set_waypoints, GS} , #state{waypoints = Waypoints} = State) ->
-    % todo change this to the gs of the leader
-    GS_Node = list_to_atom(string:strip(GS)),
+    GS_Node = hd(nodes()),
     gen_server:call({gs_server, GS_Node}, {set_waypoints, Waypoints}),
     State#state{waypoints = []}; % empty waypoints stack
 

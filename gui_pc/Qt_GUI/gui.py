@@ -28,7 +28,7 @@ class XWidget(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setPen(QPen(QColor("black"), 5))  # Adjust pen width for thickness
+        painter.setPen(QPen(QColor("black"), 3))  # Adjust pen width for thickness
 
         # Drawing from top-left to bottom-right
         painter.drawLine(QPointF(0, 0), QPointF(self.width(), self.height()))
@@ -69,6 +69,7 @@ class TimingGenerator(QThread):
 class SocketListener(QThread):
     gs_established = pyqtSignal(str)
     droneUpdate = pyqtSignal(tuple)
+    target_found = pyqtSignal(tuple)
     def __init__(self,port):
         super().__init__()
         self.port = port
@@ -89,6 +90,9 @@ class SocketListener(QThread):
                     self.droneUpdate.emit(drone_tuple)
                 elif tokens[0].strip() == "establish_comm":
                     self.gs_established.emit(tokens[1].strip('\' '))
+                elif tokens[0].strip() == "target_found":
+                    target_tuple = tuple(self.to_number(x) for x in tokens[1:])
+                    self.target_found.emit(target_tuple)
                 else:
                     print(f"Unknown message: {data}")
 
@@ -149,6 +153,7 @@ class DroneGridApp(QMainWindow):
         self.RT_socket_listener = SocketListener(self.in_port)
         self.RT_socket_listener.droneUpdate.connect(self.update_drone)
         self.RT_socket_listener.gs_established.connect(self.add_gs_slot)
+        self.RT_socket_listener.target_found.connect(self.target_found_slot)
         self.RT_socket_listener.start()
 
         # start timing generator
@@ -277,6 +282,17 @@ class DroneGridApp(QMainWindow):
         self.move_drone(drone_id, x, y, theta,speed)
         self.move_next_wp(drone_id, wp_x, wp_y)
 
+    @QtCore.pyqtSlot(tuple)
+    def target_found_slot(self, target_tuple):
+        x, y = target_tuple
+        self.update_console(f"Target found at ({x}, {y})\n")
+        for target in self.targets:
+            if int(target[0]) == int(x) and int(target[1]) == int(y):
+                self.targets.remove(target)
+                self.add_red_circle(x, convert_y_coordinates(y))
+                break
+
+
     @QtCore.pyqtSlot()
     def move_drones_slot(self):
         for drone_id, drone in self.drones.items():
@@ -356,7 +372,7 @@ class DroneGridApp(QMainWindow):
         centered_y = y - x_widget.height() / 2
 
         self.graphicsView.scene().addWidget(x_widget).setPos(QPointF(centered_x, centered_y))
-        self.targets.append((x, y))
+        self.targets.append((x, convert_y_coordinates(y)))
         target = (x, convert_y_coordinates(y))
         self.send_data_to_erl_node(str({'add_target': target}))
 
@@ -377,7 +393,16 @@ class DroneGridApp(QMainWindow):
             self.route_lines.append(line)
         self.waypoints.append((x, y))
 
+    def add_red_circle(self, x, y, radius=30):
+        # Create the circle (ellipse with equal width and height)
+        circle = QGraphicsEllipseItem(x - radius / 2, y - radius / 2, radius, radius)
 
+        # Set its color to red
+        pen = QPen(QColor(255, 0, 0))  # Red outline
+        circle.setPen(pen)
+
+        # Add the circle to the scene
+        self.scene.addItem(circle)
 
     def close_route(self):
         first_wp = self.waypoints[0]

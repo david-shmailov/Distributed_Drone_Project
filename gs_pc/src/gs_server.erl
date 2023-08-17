@@ -36,7 +36,7 @@ init([]) ->
     GS_location = get_gs_location(),
     All_Areas = init_global_areas(),
     wait_for_gui(GS_location),
-    logger("1"),
+    logger(to_server,"1"),
     start_monitor(),
     {ok, #state{gs_id = GS_ID, all_areas=All_Areas, gs_location = GS_location}};
 
@@ -60,7 +60,7 @@ init([Atom])->
                     [drone_statem:rebirth(State)|| State <- My_drones], 
                     GS_location = get_gs_location(),
                     wait_for_gui(GS_location),
-                    logger("1"),
+                    logger(to_server,"1"),
                     start_monitor(),
                     {ok, #state{gs_id = GS_ID,num_of_drones=NOF, all_areas=All_Areas, gs_location = GS_location}}
             end;   
@@ -117,8 +117,8 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =Stat
     Drones_States = [#drone{id=Id,location=GS_location, gs_server=node(),time_stamp=get_time(), borders = Borders} || Id <- lists:seq(0,Num-1)],
     Drones_ID = [{Id, drone_statem:start_link(Drone)} || #drone{id=Id}=Drone <- Drones_States],
     Drones_ID_updated = [{ID, Drone_State#drone{pid=PID}} || {#drone{id=ID}=Drone_State,  {_,{ok,PID}}} <- lists:zip(Drones_States,Drones_ID)],
-    logger("3"),
     [gen_server:cast({gs_server,Server},{all_drone_update,Drones_ID_updated})|| Server <- nodes()],
+    logger(to_server,"4"),
     [ets:insert(gs_ets, {ID,Drone})|| {ID,Drone} <- Drones_ID_updated],
     set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
@@ -134,40 +134,55 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 
 
-handle_call({create_drone, ID, Drone_state, Next_area}, _From, State) -> % todo update to work with areas
-    io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
-    New_Drone_state = Drone_state#drone{borders = Next_area, gs_server=node()},
-    {ok, PID} = drone_statem:rebirth(New_Drone_state),
-    logger("4"),
-    [gen_server:cast({gs_server,Server},{id_drone_update,[{ID,New_Drone_state#drone{pid=PID}}]}) || Server <- nodes()],
-    % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
-    set_pid(ID,PID),
-    % ets:insert(gs_ets, {ID, PID}),%TODO: pull record and update pID
-    {reply, {ok, PID}, State};
-
-
-handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
-    {Next_GS,Next_area} = check_borders(Location, State),
-    if 
-                                     % todo debug: send new internal area to drone ->
-        Next_GS == no_crossing ->
-            % exit(normal),
-            logger("2"),
-            {reply, {change_area, Next_area},State};    
+handle_call({create_drone, ID, Drone_state, Next_area, Time_stamp, Node}, _From, State) -> % todo update to work with areas
+    {ok, Current_time_stamp} = gen_server:call({time_server,Node}, get_time), % we must get time fron the same node that the timestamp is created in
+    case Current_time_stamp - Time_stamp > ?RETRY_DELAY of
         true ->
-            % io:format("Drone ~p is crossing border~n", [ID]),
-            case gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state, Next_area}) of % todo debug:check that it really is changing the dictionary
-                {ok, New_PID} -> 
-                    % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
-                    set_pid(ID, New_PID),
-                    logger("4"),
-                    reupdate_neighbour(ID,New_PID),
-                    {reply, terminate, State}; % terminate the old drone
-                _ -> 
-                    io:format("ERROR creating drone on neighbor GS ~p~n", [Next_GS]),
-                    {reply, ok, State} % drone creation failed, dont terminate the old drone
+            {reply,{timeout, ok},State}; % throw the old irrelevant message
+        false ->
+            % io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
+            New_Drone_state = Drone_state#drone{borders = Next_area, gs_server=node()},
+            {ok, PID} = drone_statem:rebirth(New_Drone_state),
+            [gen_server:cast({gs_server,Server},{id_drone_update,[{ID,New_Drone_state#drone{pid=PID}}]}) || Server <- nodes()],
+            logger(to_server,"4"),
+            % io:format("Create Drone :Drone ~p is reborn at ~p with PID~p and neighbours~p~n ", [ID,node(),PID,get_value(followers,Drone_state)]),
+            set_pid(ID,PID),
+            {reply, {ok, PID}, State}
+    end;
+
+
+handle_call({crossing_border,ID, Location, #drone{time_stamp = Time_stamp} = Drone_state}, _From, State) ->
+    Current_time_stamp = get_time(), % time here is within the same node, which is synchronized
+    case Current_time_stamp - Time_stamp > ?RETRY_DELAY of
+        true ->
+            {reply,ok,State}; % throw the old irrelevant message
+        false ->
+            {Next_GS,Next_area} = check_borders(Location, State),
+            logger(to_drone,"2"),
+            logger(to_server,"2"),
+            if 
+                Next_GS == no_crossing ->
+                    {reply, {change_area, Next_area},State};    
+                true ->
+                    % io:format("Drone ~p is crossing border~n", [ID]),
+                    try 
+                        {Res, New_PID} = gen_server:call({gs_server, Next_GS}, {create_drone, ID, Drone_state, Next_area, get_time(), node()}, ?RETRY_DELAY),
+                        case Res of
+                            timeout -> % in a very rare case where call doesn't timeout but timestamp does.
+                                {reply, ok, State}; % drone creation failed, dont terminate the old drone, will try again
+                            ok ->
+                                % io:format("Reply from GS ~p: ~p~n", [Next_GS, New_PID]),
+                                set_pid(ID, New_PID),
+                                reupdate_neighbour(ID,New_PID),
+                                {reply, terminate, State} % terminate the old drone
+                        end
+                    catch
+                        exit:{timeout, _} ->  % to prevent a deadlock between two GSs
+                            {reply, ok, State} % drone creation failed, dont terminate the old drone, will try again
+                    end
             end
     end;
+    
 
 
 
@@ -175,7 +190,7 @@ handle_call({crossing_border,ID, Location, Drone_state}, _From, State) ->
 
 handle_call({dead_neighbour,ID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
     New_Pid=get_pid(ID),
-    logger("2"),
+    logger(to_drone,"2"),
     % [New_Pid]=ets:lookup(gs_ets, ID),
     % io:format("Drone ID: ~p, new PID~p~n", [ID,New_Pid]),
     {reply, {ok,New_Pid}, State};
@@ -213,7 +228,8 @@ handle_cast({drone_update, #drone{id = ID, gs_server=GS_Server}=Drone}, State) w
     if
         GS_Server == Self_Node ->
             [gen_server:cast({gs_server,Server},{drone_update,Drone})|| Server <- nodes()], % todo remove hard coded!
-            logger("4"), % 1 msg drone -> GS, 3 msg GS -> GS
+            logger(to_server,"4"),
+            logger(to_drone,"1"),
             {noreply,send_to_gui(Drone, State)};
         true->
             {noreply,State}
@@ -238,8 +254,9 @@ handle_cast({id_drone_update,ID_Drone_List}, State) ->
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->
     List_of_PIDs=[get_pid(ID)||ID <- lists:seq(0,Num_of_drones-1)],
     [gen_statem:cast(PID,{target_found,Target}) || PID <- List_of_PIDs],
+    logger(to_drone, integer_to_list(length(List_of_PIDs)+ 1)),
     gen_server:cast(get_gui_node(), {target_found,Target}),
-    logger(integer_to_list(length(List_of_PIDs)+ 1)),
+    logger('to_server',"1"),
     {noreply, State};
 
 handle_cast({update_areas,New_Areas}, State) ->
@@ -248,8 +265,7 @@ handle_cast({update_areas,New_Areas}, State) ->
 
 
 handle_cast(Message, State) when is_record(Message, log_message) ->
-    logger("1"),
-    gen_server:cast(get_gui_node(), Message),
+    gen_server:cast(get_gui_node(), Message), % do not count this message! its part of statistics
     {noreply, State};
 
 handle_cast(_Msg, State) ->
@@ -274,8 +290,8 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
             New_PIDS = [drone_statem:rebirth(Drone_state#drone{gs_server=node()})||Drone_state <- Lost_Drones],% rebirth the drones
             Drones_ID_updated =[{ID,Drone#drone{pid=PID}}   || {#drone{id=ID}=Drone, {_,PID}} <-lists:zip(Lost_Drones,New_PIDS)],
             [set_pid(ID,PID) || {ID,{_,PID}} <- lists:zip(lists:seq(0,NOF-1),New_PIDS)],% update the ets with the new pids
-            logger("4"),
             [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated}) || Server <- nodes()],
+            logger(to_server,"4"),
             set_followers(NOF)     
         end,
     {noreply, State#state{all_areas = New_Areas}};
@@ -297,10 +313,9 @@ code_change(_OldVsn, State, _Extra) ->
 
 
 wait_for_gui(GS_location) ->
-    
     try
         gen_server:call(get_gui_node(), {establish_comm, node(), GS_location}),
-        logger("1"),
+        logger(to_server,"2"),
         io:format("GUI is up~n")
     catch
         exit:{{nodedown, _},_} ->
@@ -387,11 +402,11 @@ send_target_to_drone(ID, Target) ->
 
 send_to_drone(ID, Message) ->
     % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
-    io:format("sending message ~p to drone ~p~n", [Message, ID]),
+    % io:format("sending message ~p to drone ~p~n", [Message, ID]),
     case get_pid(ID) of
         PID when is_pid(PID) ->
             gen_statem:cast(PID, Message),
-            logger("1");
+            logger(to_drone,"1");
         [] ->
             io:format("ERROR Drone ~p not found~n", [ID]);
         ERR ->
@@ -421,7 +436,7 @@ send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
     if  
         length(Stack) >= ?STACK_SIZE ->
             % io:format("Stack is full~n"), % debug
-            logger("1"),
+            logger(to_server,"1"),
             gen_server:cast(get_gui_node() , {drone_update, [Drone|Stack]}),
             State#state{data_stack = []};
         true ->
@@ -444,7 +459,7 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
         false -> %means that the drone leader is the pack leader
             case get_pid(0) of %ets:lookup(gs_ets,0)
                 PID when is_pid(PID) ->
-                    logger("1"),
+                    logger(to_drone,"1"),
                     gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
                 [] ->
                     {error, not_found}
@@ -453,7 +468,7 @@ reupdate_neighbour(Reborn_ID,New_PID) ->
             Leader = Reborn_ID -2,
             case get_pid(Leader) of %ets:lookup(gs_ets,Leader)
                 PID when is_pid(PID) ->
-                    logger("1"),
+                    logger(to_drone, "1"),
                     gen_statem:cast(PID,{replace_neighbour,{Reborn_ID,New_PID}});
                 [] ->
                     {error, not_found}
@@ -482,11 +497,19 @@ id_pid_insertion([{ID,PID}|T]) ->
 % set_pid_in_db(ID, PID) ->
 %     mnesia:transaction(fun() -> mnesia:write(database, #mnesia_record{id = ID, pid = PID}, write) end).
 
-logger(Message) ->
+logger(to_server,Message) ->
     {_,Time} = calendar:local_time(),
     % make a string of "drone" and Id
     {ok, Node_ID} = extract_number(node()),
-    Name = lists:flatten(io_lib:format("gs_server gs~p",[Node_ID])),
+    Name = lists:flatten(io_lib:format("server_server gs~p",[Node_ID])),
+    Log = #log_message{time=Time, source = Name, message = Message},
+    gen_server:cast(get_gui_node() , Log);
+
+logger(to_drone,Message) ->
+    {_,Time} = calendar:local_time(),
+    % make a string of "drone" and Id
+    {ok, Node_ID} = extract_number(node()),
+    Name = lists:flatten(io_lib:format("server_drone gs~p",[Node_ID])),
     Log = #log_message{time=Time, source = Name, message = Message},
     gen_server:cast(get_gui_node() , Log).
 
@@ -547,7 +570,7 @@ expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}) ->
             % add backup areas to my areas
             My_New_Areas = MyAreas ++ BackupAreas,
             New_Areas = lists:keyreplace(MyGS, 1, Areas_Without_Dead_GS, {MyGS, My_New_Areas}),
-            logger("4"),
+            logger(to_server,"4"),
             [gen_server:cast({'gs_server',GS_NODE}, {update_areas,New_Areas}) || GS_NODE <- nodes()],
             % monitor our new rightmost neighbor
             DeadGS_R_Border = get_rightmost_border_modulu(My_New_Areas),

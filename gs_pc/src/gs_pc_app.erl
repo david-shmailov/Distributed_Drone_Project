@@ -16,6 +16,7 @@ start(_StartType, _StartArgs) ->
     {ok, SupPid} = gs_pc_sup:start_link(),
     ping_gui_node(),
     gs_server:start_link(),
+    time_server:start_link(),
     receive
          shutdown ->
             % Perform cleanup or shutdown actions here

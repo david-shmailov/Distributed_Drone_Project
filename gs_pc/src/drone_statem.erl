@@ -48,7 +48,7 @@ stop() ->
 
 
 init([rebirth | [#drone{id = ID} = Internal_state]]) when is_record(Internal_state, drone) -> % needed for pattern match on rebirth
-    io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
+    % io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
     case ID of
         0 ->
             State = leader;
@@ -119,7 +119,7 @@ slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}}, #drone{follo
         [_|_] ->
             New_followers = update_neighbors(WP_Position, WP_Theta, Internal_state) 
     end,
-    {keep_state,Internal_state#drone{followers = New_followers, next_waypoint = {WP_Position,WP_Theta}, theta = Theta_to_wp}};
+    {keep_state, Internal_state#drone{followers = New_followers, next_waypoint = {WP_Position,WP_Theta}, theta = Theta_to_wp}};
 
 
 
@@ -269,7 +269,9 @@ calculate_interception_point({{WP_X,WP_Y}, WP_Theta}=Waypoint, Position) ->
 calculate_speed(#drone{next_waypoint= Waypoint, location = Location, speed = Current_speed}) ->
     Distance_to_waypoint = get_distance(Waypoint,Location),
     if
-        Distance_to_waypoint > ?STEP_SIZE*2 ->% speed must not be larger than 2!!! otherwise unstable system
+        % Distance_to_waypoint > ?STEP_SIZE*10 ->
+        %     5;
+        Distance_to_waypoint > ?STEP_SIZE*2 ->
             2;
         Distance_to_waypoint < ?STEP_SIZE andalso Current_speed == 0 -> % might be problematic we need a range
             0;
@@ -319,11 +321,9 @@ step(slave, #drone{speed= Old_speed, theta = Old_theta, location={X,Y}, next_way
     % io:format("Drone ~p is stepping~n",[get(id)]),
     New_Speed = calculate_speed(Internal_state),
     case New_Speed of
-        1 ->
+        1 -> % stable cruising speed
             New_waypoint = increment_waypoint(Internal_state);
-        0 ->
-            New_waypoint = Waypoint;
-        2 ->
+        _ ->
             New_waypoint = Waypoint
     end,
     New_Theta = get_theta_to_wp(Internal_state#drone{next_waypoint = New_waypoint}),
@@ -359,14 +359,17 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta, #drone{id=ID} = Interna
     catch
         exit:{noproc, _} ->
             % io:format("Requesting new PID~n"),
-            {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
-            Updated_Neighbors = replace_dead_neighbour(Neighbor_ID,New_PID,Internal_state),
-            update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta,Internal_state#drone{followers = Updated_Neighbors});
+            try
+                {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
+                Updated_Neighbors = replace_dead_neighbour(Neighbor_ID,New_PID,Internal_state),
+                update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta,Internal_state#drone{followers = Updated_Neighbors})
+            catch
+                exit:{timeout, _} ->
+                    io:format("ERROR: timeout in line 365\n")
+            end;
         Error:Kind->
             io:format("Error in update_neighbors~n~p:~p~n",[Error,Kind]),
-            {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
-            Updated_Neighbors = replace_dead_neighbour(Neighbor_ID,New_PID,Internal_state),
-            update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta, Internal_state#drone{followers = Updated_Neighbors})
+            update_neighbors(T ++ [{Neighbor_ID,PID}], Location, Theta,Internal_state)
     end.
 
 
@@ -389,13 +392,12 @@ check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) 
 
 
 cross_border(#drone{id=ID, location=Location}=Internal_state) ->
-    % try
-        gen_server:call(gs_server, {crossing_border, ID, Location,Internal_state#drone{time_stamp=get_time()}}, infinity).
-    % catch
-    %     exit:{noproc, _} ->
-    %         timer:sleep(1000),
-    %         cross_border(Internal_state)
-    %         end.
+    try
+        gen_server:call(gs_server, {crossing_border, ID, Location,Internal_state#drone{time_stamp=get_time()}}, ?RETRY_DELAY)
+    catch
+        exit:{timeout, _} ->
+            ok
+    end.
 
 
 
@@ -421,7 +423,7 @@ look_for_target([Target|Rest], #drone{location=Location} = Internal_state)->
 logger(ID,Message) ->
     {_,Time} = calendar:local_time(),
     % make a string of "drone" and Id
-    Name = lists:flatten(io_lib:format("drone ~p",[ID])),
+    Name = lists:flatten(io_lib:format("drone_drone ~p",[ID])),
     Log = #log_message{time=Time, source = Name, message = Message},
     gen_server:cast(gs_server, Log).
 
