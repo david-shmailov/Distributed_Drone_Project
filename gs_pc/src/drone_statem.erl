@@ -354,7 +354,7 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta, #drone{id=ID} = Interna
         logger(ID,"2"),
         update_neighbors(T, Location, Theta,Internal_state)
     catch
-        exit:{noproc, _} ->
+        Error:Kind -> % noproc and nodedown errors
             % io:format("Requesting new PID~n"),
             try
                 {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
@@ -362,11 +362,8 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta, #drone{id=ID} = Interna
                 update_neighbors([{Neighbor_ID,New_PID} | T], Location, Theta,Internal_state#drone{followers = Updated_Neighbors})
             catch
                 exit:{timeout, _} ->
-                    io:format("ERROR: timeout in line 365\n")
-            end;
-        Error:Kind->
-            io:format("Error in update_neighbors~n~p:~p~n",[Error,Kind]),
-            update_neighbors(T ++ [{Neighbor_ID,PID}], Location, Theta,Internal_state)
+                    ok
+            end
     end.
 
 
@@ -402,7 +399,7 @@ cross_border(#drone{id=ID, location=Location}=Internal_state) ->
 
 
 look_for_target(#drone{targets = Targets} = Internal_state) ->
-    io:format("looking for targets, and my targets are ~p~n",[Targets]),
+    % io:format("looking for targets, and my targets are ~p~n",[Targets]),
     look_for_target(Targets, Internal_state).
 
 look_for_target([], #drone{targets = Targets} )->

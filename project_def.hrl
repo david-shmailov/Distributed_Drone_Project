@@ -16,7 +16,7 @@
 -define(PORT_ERL2PY, 8000).
 -define(PORT_PY2ERL, 8001).
 -define(MAX_THETA, math:pi()/8).
--define(DEBUG_MODE, false).
+-define(DEBUG_MODE, false). % if set to true, will cause the drones to transmit every step
 
 
 -record(drone, {id, location, theta=0, speed=0, pid = undefined, next_waypoint={{0,0},0},

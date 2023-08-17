@@ -17,7 +17,7 @@
 
 
 %% State record
--record(state, {gs_id, num_of_drones, data_stack=[], gs_location, all_areas}).
+-record(state, {gs_id, num_of_drones=0, data_stack=[], gs_location, all_areas, node_to_monitor}).
 
 
 start_link(_) ->
@@ -37,8 +37,8 @@ init([]) ->
     All_Areas = init_global_areas(),
     wait_for_gui(GS_location),
     logger(to_server,"1"),
-    start_monitor(),
-    {ok, #state{gs_id = GS_ID, all_areas=All_Areas, gs_location = GS_location}};
+    Node_to_monitor = start_monitor(),
+    {ok, #state{gs_id = GS_ID, all_areas=All_Areas, gs_location = GS_location, node_to_monitor = Node_to_monitor}};
 
 init([Atom])->
     case Atom of
@@ -56,8 +56,8 @@ init([Atom])->
                     GS_location = get_gs_location(),
                     wait_for_gui(GS_location),
                     logger(to_server,"1"),
-                    start_monitor(),
-                    {ok, #state{gs_id = GS_ID,num_of_drones=NOF, all_areas=All_Areas, gs_location = GS_location}}
+                    Node_to_monitor = start_monitor(),
+                    {ok, #state{gs_id = GS_ID,num_of_drones=NOF, all_areas=All_Areas, gs_location = GS_location, node_to_monitor = Node_to_monitor}}
             end;   
         _ ->
             init([])
@@ -71,7 +71,8 @@ start_monitor()->
     case net_adm:ping(Node_to_monitor) of
         pong ->
             io:format("Node ~p is up~n",[Node_to_monitor]),
-            monitor_node(Node_to_monitor,true);
+            monitor_node(Node_to_monitor,true),
+            Node_to_monitor;
         pang ->
             {ok, Number} = extract_number(node()),
             io:format("Node gs~p is down, trying again~n",[Number+1]),
@@ -79,7 +80,7 @@ start_monitor()->
             start_monitor()
     end.
 
-start_monitor(Node)->
+start_monitor(Node)-> % bug we should be using this after we replace someone else
     Node_to_monitor = get_node_to_monitor(Node),
     case net_adm:ping(Node_to_monitor) of
         pong ->
@@ -129,11 +130,11 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 
 handle_call({create_drone, ID, Drone_state, Next_area, Time_stamp, Node}, _From, State) -> % todo update to work with areas
-    {ok, Current_time_stamp} = gen_server:call({time_server,Node}, get_time), % we must get time fron the same node that the timestamp is created in
-    case Current_time_stamp - Time_stamp > ?RETRY_DELAY of
-        true ->
+    {Res, Current_time_stamp} = get_current_time_from_node(Node),
+    if
+        (Current_time_stamp - Time_stamp)>= ?RETRY_DELAY ->
             {reply,{timeout, ok},State}; % throw the old irrelevant message
-        false ->
+        (Res == noproc) orelse  (Current_time_stamp - Time_stamp < ?RETRY_DELAY) -> % assume if time_server dead, the node is dead
             % io:format("Create Drone :Drone ~p is reborn at ~p~n ", [ID,node()]),
             New_Drone_state = Drone_state#drone{borders = Next_area, gs_server=node()},
             {ok, PID} = drone_statem:rebirth(New_Drone_state),
@@ -157,6 +158,9 @@ handle_call({crossing_border,ID, Location, #drone{time_stamp = Time_stamp} = Dro
             if 
                 Next_GS == no_crossing ->
                     {reply, {change_area, Next_area},State};    
+                Next_GS == undefined ->
+                    io:format("ERROR: Next GS is Dead~n"),
+                    {reply, ok, State}; 
                 true ->
                     % io:format("Drone ~p is crossing border~n", [ID]),
                     try 
@@ -265,13 +269,19 @@ handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
 
-handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=State) ->
+handle_info({nodedown, _}, #state{num_of_drones=NOF, node_to_monitor= Node}=State) ->
     io:format("Node ~p went down!~n", [Node]),
     %% Handle the node down event as needed
     {ok, DeadGS} = extract_number(Node),
-    {true, New_Areas} = expand_areas(DeadGS, State),
-    Lost_Drones = retrieve_all_drones(Node, State), % todo continue recreating the drones
-    % start_monitor(Dead_GS),% monitor the node that the dead node was suppose to monitor
+    New_State = expand_areas(DeadGS, State),
+    New_Backup_Node = New_State#state.node_to_monitor,
+    case New_Backup_Node of
+        undefined ->
+            ok;
+        _ ->
+            monitor_node(New_State#state.node_to_monitor, true)
+    end,
+    Lost_Drones = retrieve_all_drones(Node, New_State), 
     ETS = ets:tab2list(gs_ets),
     io:format("ETS: ~p", [ETS]),
     if 
@@ -279,18 +289,28 @@ handle_info({nodedown, Node}, #state{num_of_drones=NOF,all_areas=All_Areas}=Stat
             io:format("No drones lost~n");
         true->
             io:format("Lost drones: ~p~n", [Lost_Drones]),
-            New_PIDS = [drone_statem:rebirth(Drone_state#drone{gs_server=node()})||Drone_state <- Lost_Drones],% rebirth the drones
-            Drones_ID_updated =[{ID,Drone#drone{pid=PID}}   || {#drone{id=ID}=Drone, {_,PID}} <-lists:zip(Lost_Drones,New_PIDS)],
-            [set_pid(ID,PID) || {ID,{_,PID}} <- lists:zip(lists:seq(0,NOF-1),New_PIDS)],% update the ets with the new pids
+            New_PIDS = [drone_statem:rebirth(Drone_state#drone{gs_server=node()}) || Drone_state <- Lost_Drones],% rebirth the drones
+            io:format("New PIDS: ~p~n", [New_PIDS]),
+            Drones_ID_updated = [{ID, Drone_state#drone{pid=PID}} || { #drone{id=ID}=Drone_state  , {ok,PID}} <- my_zip(Lost_Drones, New_PIDS)],
+            % Drones_ID_updated =[{ID,Drone#drone{pid=PID}}   || {#drone{id=ID}=Drone, {_,PID}} <-lists:zip(Lost_Drones, New_PIDS)],
+            [set_pid(ID,PID) || #drone{id=ID, pid=PID} <- Drones_ID_updated],% update the ets with the new pids
             [gen_server:cast({gs_server,Server},{id_drone_update,Drones_ID_updated}) || Server <- nodes()],
             logger(to_server,"4"),
             set_followers(NOF)     
         end,
-    {noreply, State#state{all_areas = New_Areas}};
+    {noreply, New_State};
 
 
 handle_info(_Info, State) ->
     {noreply, State}.
+
+my_zip(List1,List2) ->
+    my_zip(List1,List2,[]).
+my_zip([],[],Acc)->
+    Acc;
+my_zip([H1|T1],[H2|T2],Acc)->
+    my_zip(T1,T2, Acc ++ [{H1,H2}]).
+
 
 terminate(_Reason, _State) ->
     ok.
@@ -326,7 +346,7 @@ extract_number(NodeName) ->
         {match, [Number]} -> 
             {ok, list_to_integer(Number)};
         _ -> 
-            {error, "Invalid NodeName format"}
+            {error, "Invalid Node Name format in extract_number!!!!!! "}
     end.
 
 
@@ -544,33 +564,55 @@ drone_restore_state(ID)-> %returns the approximation of drone state
 
 % Given the number of the dead GS and current all areas,
 % returns if the calling GS should backup the dead GS, updated neighbors, and updated borders.
-expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}) ->
+expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}=State) ->
     % All_Areas is a list of tuples [{GS, [Area1, Area2,...]}, ...]
     {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
+    {DeadGS, BackupAreas}  = lists:keyfind(DeadGS, 1, All_Areas),
     Curr_R_Border = get_rightmost_border_modulu(MyAreas),
-    {Backup, BackupAreas} = find_adjacent_GS(All_Areas, Curr_R_Border), 
+    io:format("Current right border: ~p~n", [Curr_R_Border]),
+    io:format("all areas: ~p~n", [All_Areas]),
     
     % If the dead GS is not the GS we backup, return false.
-    case DeadGS =:= Backup of 
-        false -> % not the GS we backup
-            io:format("ERROR Incorrect Backup GS ~p doesn't match monitored GS ~p ~n",[Backup, DeadGS]),
-            {false, undefined}; % this shouldnt happen
-        true -> 
-            % remove old area
-            Areas_Without_Dead_GS = lists:keydelete(DeadGS, 1, All_Areas),
-            % add backup areas to my areas
-            My_New_Areas = MyAreas ++ BackupAreas,
-            New_Areas = lists:keyreplace(MyGS, 1, Areas_Without_Dead_GS, {MyGS, My_New_Areas}),
-            logger(to_server,"4"),
-            [gen_server:cast({'gs_server',GS_NODE}, {update_areas,New_Areas}) || GS_NODE <- nodes()],
-            % monitor our new rightmost neighbor
-            DeadGS_R_Border = get_rightmost_border_modulu(My_New_Areas),
-            {New_Backup, _} = find_adjacent_GS(New_Areas, DeadGS_R_Border), 
-            New_Backup_Node = number_to_gs(New_Backup),
-            monitor_node(New_Backup_Node, true),
-            {true,  New_Areas}
-    end.
+    % remove old area
+    Areas_Without_Dead_GS = lists:keydelete(DeadGS, 1, All_Areas),
+    % add backup areas to my areas
+    io:format("Backup areas: ~p~n", [BackupAreas]),
+    io:format("Areas_without_dead_gs: ~p~n", [Areas_Without_Dead_GS]),
+    My_New_Areas = MyAreas ++ BackupAreas,
+    io:format("My new areas: ~p~n", [My_New_Areas]),
+    New_Areas = lists:keyreplace(MyGS, 1, Areas_Without_Dead_GS, {MyGS, My_New_Areas}),
+    io:format("New areas: ~p~n", [New_Areas]),
+    logger(to_server,"4"),
+    [gen_server:cast({'gs_server',GS_NODE}, {update_areas,New_Areas}) || GS_NODE <- nodes()],
+    New_Backup_Node = get_next_node(filter_and_sort_nodes(), MyGS),
+    % io:format("New backup GS: ~p~n", [New_Backup_Node]),
+    State#state{node_to_monitor=New_Backup_Node, all_areas=New_Areas}.
 
+
+
+
+% Filter and sort the nodes
+filter_and_sort_nodes() ->
+    AllNodes = nodes(),
+    GsNodes = [Node || Node <- AllNodes, lists:prefix("gs", atom_to_list(Node))],
+    lists:sort(fun(Node1, Node2) -> 
+                   extract_number(Node1) < extract_number(Node2)
+               end, GsNodes).
+
+get_next_node([], _) ->
+    undefined;
+% Get the next available node in a cyclic manner
+get_next_node(SortedNodes, MyID) ->
+    % Find the nodes with ID greater than MyID
+    HigherNodes = [Node || Node <- SortedNodes, extract_number(Node) > MyID],
+    
+    % Return the node based on availability
+    case HigherNodes of
+        [] -> % If no higher node, return the first one (lowest ID)
+            hd(SortedNodes);
+        [FirstHigherNode|_] -> % If there are higher nodes, return the first one
+            FirstHigherNode
+    end.
 
 find_adjacent_GS([], _) ->
     io:format("ERROR find_adjacent_GS: No areas found~n", []);
@@ -593,12 +635,12 @@ find_adjacent_area([#area{left_border=His_L_Border} = _ | T], My_R_Border) ->
     end.
 
 get_rightmost_border_modulu(Areas)->
-    get_rightmost_border_modulu(Areas, -?INFINITY).
+    get_rightmost_border_modulu(Areas, -?INFINITY).  % [ 1, 2 ,4 ] 
 get_rightmost_border_modulu([], Max)->
     Max;
 get_rightmost_border_modulu([#area{right_border=Border} | T], Max)-> % todo check if this is the right border
     if 
-        Border =:= ?INFINITY ->
+        Border == ?INFINITY ->
             get_rightmost_border_modulu(T, Max);
         Border > Max ->
             get_rightmost_border_modulu(T, Border);
@@ -670,4 +712,16 @@ get_gui_node() ->
         [Node] -> {?GUI_SERVER, Node}; % If there's exactly one matching node
         [] -> undefined; % If no nodes match
         _ -> {error, multiple_matches} % If there are multiple matches, which shouldn't happen
+    end.
+
+get_current_time_from_node(Node) ->
+    try
+        gen_server:call({time_server,Node}, get_time) % we must get time fron the same node that the timestamp is created in
+    catch
+        exit:{noproc, _} ->
+            io:format("ERROR: time_server is down~n"),
+            {noproc, 0}; % if the time_server is down, we assume the gs_server is also down
+        Error:Reason ->
+            io:format("ERROR: ~p, Reason:~p~n", [Error, Reason]),
+            {Error, Reason}
     end.
