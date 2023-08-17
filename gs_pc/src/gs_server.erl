@@ -246,8 +246,9 @@ handle_cast({id_drone_update,ID_Drone_List}, State) ->
     {noreply, State};
 
 handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State) ->
-    List_of_PIDs=[get_pid(ID)||ID <- lists:seq(1,Num_of_drones-1),ID =/= 0],
+    List_of_PIDs=[get_pid(ID)||ID <- lists:seq(0,Num_of_drones-1)],
     [gen_statem:cast(PID,{target_found,Target}) || PID <- List_of_PIDs],
+    gen_server:cast(get_gui_node(), {target_found,Target}),
     logger(integer_to_list(length(List_of_PIDs)+ 1)),
     {noreply, State};
 
@@ -615,6 +616,7 @@ retrieve_all_drones(Node, #state{num_of_drones = Nof_Drones}) ->
     All_Drones = [get_drone(ID) || ID <- lists:seq(0,Nof_Drones-1)],
     Old_states=lists:filter(fun(Drone) -> Drone#drone.gs_server == Node end, All_Drones),
     [drone_restore_state(Drone#drone.id)|| Drone <- Old_states].
+
 
 
 

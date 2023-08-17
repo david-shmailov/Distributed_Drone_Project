@@ -50,6 +50,10 @@ handle_call(_Request, _From, State) ->
     io:format("Unknown message: ~p from ~p ~n", [_Request, _From]),
     {reply, ignored, State}.
 
+handle_cast({target_found,Target}, State) ->
+    io:format("GUI SERVER Anouncment :Target found: ~p~n", [Target]),
+    {noreply, State};
+
 
 handle_cast({drone_update, Stack}, State) ->
     send_stack_to_gui(Stack, State),
