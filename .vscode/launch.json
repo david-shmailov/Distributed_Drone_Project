@@ -9,7 +9,7 @@
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gui_pc/",
-        "arguments": "-name gui@172.21.28.158 -setcookie cookie -eval \"application:start(gui_pc)\"",
+        "arguments": "-name gui@172.25.1.176 -setcookie cookie -eval \"application:start(gui_pc)\"",
         "preLaunchTask": "rebar3 compile gui_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       },
@@ -18,7 +18,7 @@
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gs_pc/",
-        "arguments": "-name gs1@172.21.28.158 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
+        "arguments": "-name gs1@172.25.1.176 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
         "preLaunchTask": "rebar3 compile gs_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       },
@@ -27,7 +27,7 @@
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gs_pc/",
-        "arguments": "-name gs2@172.21.28.158 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
+        "arguments": "-name gs2@172.25.1.176 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
         "preLaunchTask": "rebar3 compile gs_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       },
@@ -36,7 +36,7 @@
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gs_pc/",
-        "arguments": "-name gs3@172.21.28.158 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
+        "arguments": "-name gs3@172.25.1.176 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
         "preLaunchTask": "rebar3 compile gs_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       },
@@ -45,7 +45,7 @@
         "type": "erlang",
         "request": "launch",
         "cwd": "${workspaceRoot}/gs_pc/",
-        "arguments": "-name gs4@172.21.28.158 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
+        "arguments": "-name gs4@172.25.1.176 -setcookie cookie -args_file gs_args.args -eval \"application:start(gs_pc)\"",
         "preLaunchTask": "rebar3 compile gs_pc",
         // "runinterminal": ["cd gui_pc && rebar3", "shell"]
       }
