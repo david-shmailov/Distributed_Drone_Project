@@ -44,15 +44,20 @@ init([Atom])->
     case Atom of
         ask_for_restoration ->
             {ok, GS_ID} = extract_number(node()),
-            [Node|_]=nodes(),
+            Node=get_some_node(),%todo create a more stable way to get some node that isnt gui
+            io:format("trying to get data from~p~n",[Node]),
             case Node of
                 [] ->
                     io:format("ERROR: no nodes to back up found~n"),
                     init([]);
                 _ ->
-                    {ok,ETS,#state{num_of_drones=NOF,all_areas=All_Areas}=_} = gen_server:call({gs_server,Node},{ask_for_restoration}),
+                    {ok,ETS,#state{num_of_drones=NOF,all_areas=All_Areas}=_} = gen_server:call({gs_server,Node},ask_for_restoration),
                     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
                     [ets:insert(gs_ets, {ID, Drone})|| {ID,Drone} <- ETS],
+                    My_drones = retrieve_all_drones(node(), #state{num_of_drones=NOF,all_areas=All_Areas}),
+                    TerminatePidList = [State#drone.pid || State <- My_drones],
+                    lists:foreach(fun(PID)-> gen_statem:stop(PID) end, TerminatePidList),
+                    [drone_statem:rebirth(State)|| State <- My_drones], 
                     GS_location = get_gs_location(),
                     wait_for_gui(GS_location),
                     logger(to_server,"1"),
@@ -77,17 +82,6 @@ start_monitor()->
             {ok, Number} = extract_number(node()),
             io:format("Node gs~p is down, trying again~n",[Number+1]),
             timer:sleep(1000),
-            start_monitor()
-    end.
-
-start_monitor(Node)-> % bug we should be using this after we replace someone else
-    Node_to_monitor = get_node_to_monitor(Node),
-    case net_adm:ping(Node_to_monitor) of
-        pong ->
-            io:format("Node ~p is up~n",[Node_to_monitor]),
-            monitor_node(Node_to_monitor,true);
-        pang ->
-            timer:sleep(500),
             start_monitor()
     end.
 
@@ -159,7 +153,6 @@ handle_call({crossing_border,ID, Location, #drone{time_stamp = Time_stamp} = Dro
                 Next_GS == no_crossing ->
                     {reply, {change_area, Next_area},State};    
                 Next_GS == undefined ->
-                    io:format("ERROR: Next GS is Dead~n"),
                     {reply, ok, State}; 
                 true ->
                     % io:format("Drone ~p is crossing border~n", [ID]),
@@ -203,6 +196,7 @@ handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the 
     end;
 handle_call(ask_for_restoration, _From, State) ->
     ETS = ets:tab2list(gs_ets),
+    io:format("Asked for restoration~n"),
     {reply, {ok,ETS, State}, State};
 
 handle_call(_Request, _From, State) ->
@@ -257,7 +251,7 @@ handle_cast({target_found,Target}, #state{num_of_drones = Num_of_drones} = State
     {noreply, State};
 
 handle_cast({update_areas,New_Areas}, State) ->
-    io:format("update areas: ~p~n", [New_Areas]),
+    % io:format("update areas: ~p~n", [New_Areas]),
     {noreply, State#state{all_areas = New_Areas}};
 
 
@@ -282,15 +276,13 @@ handle_info({nodedown, _}, #state{num_of_drones=NOF, node_to_monitor= Node}=Stat
             monitor_node(New_State#state.node_to_monitor, true)
     end,
     Lost_Drones = retrieve_all_drones(Node, New_State), 
-    ETS = ets:tab2list(gs_ets),
-    io:format("ETS: ~p", [ETS]),
     if 
         Lost_Drones ==[] ->
             io:format("No drones lost~n");
         true->
-            io:format("Lost drones: ~p~n", [Lost_Drones]),
+            % io:format("Lost drones: ~p~n", [Lost_Drones]),
             New_PIDS = [drone_statem:rebirth(Drone_state#drone{gs_server=node()}) || Drone_state <- Lost_Drones],% rebirth the drones
-            io:format("New PIDS: ~p~n", [New_PIDS]),
+            % io:format("New PIDS: ~p~n", [New_PIDS]),
             Drones_ID_updated = [{ID, Drone_state#drone{pid=PID}} || { #drone{id=ID}=Drone_state  , {ok,PID}} <- my_zip(Lost_Drones, New_PIDS)],
             % Drones_ID_updated =[{ID,Drone#drone{pid=PID}}   || {#drone{id=ID}=Drone, {_,PID}} <-lists:zip(Lost_Drones, New_PIDS)],
             [set_pid(ID,PID) || #drone{id=ID, pid=PID} <- Drones_ID_updated],% update the ets with the new pids
@@ -302,6 +294,7 @@ handle_info({nodedown, _}, #state{num_of_drones=NOF, node_to_monitor= Node}=Stat
 
 
 handle_info(_Info, State) ->
+    exit(normal),
     {noreply, State}.
 
 my_zip(List1,List2) ->
@@ -386,7 +379,7 @@ check_borders({X,_}, #state{gs_id=MyGS ,all_areas = All_Areas}) -> % todo debug 
             {Next_GS_Node,Next_area} % todo debug update drone borders if it crossed to a different area that is also in this node
     end.
 
-assign_area(X,[])->
+assign_area(_,[])->
     io:format("Error: no area found~n");
 
 assign_area(X, [{_,[]} | Other_GS])->
@@ -552,7 +545,6 @@ drone_restore_state(ID)-> %returns the approximation of drone state
         [{ID, #drone{time_stamp = Old_time_stamp, speed= Speed, theta= Theta, location = {Old_X,Old_Y}} = Drone}]->
             Current_time_stamp = get_time(),
             Number_of_steps= (Current_time_stamp-Old_time_stamp)/?TIMEOUT,
-            io:format("number of steps for drone ~p is ~p~n",[ID,Number_of_steps]),
             New_location = {Old_X+Number_of_steps*?STEP_SIZE*Speed*math:cos(Theta), Old_Y+Number_of_steps*?STEP_SIZE*Speed*math:sin(Theta)},
             % New_location = {Old_X, Old_Y}, % for debug to disable location approximation
             Drone#drone{location=New_location,time_stamp=Current_time_stamp};
@@ -562,8 +554,6 @@ drone_restore_state(ID)-> %returns the approximation of drone state
 
 
 
-% Given the number of the dead GS and current all areas,
-% returns if the calling GS should backup the dead GS, updated neighbors, and updated borders.
 expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}=State) ->
     % All_Areas is a list of tuples [{GS, [Area1, Area2,...]}, ...]
     {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
@@ -590,7 +580,6 @@ expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}=State) ->
 
 
 
-
 % Filter and sort the nodes
 filter_and_sort_nodes() ->
     AllNodes = nodes(),
@@ -598,6 +587,7 @@ filter_and_sort_nodes() ->
     lists:sort(fun(Node1, Node2) -> 
                    extract_number(Node1) < extract_number(Node2)
                end, GsNodes).
+
 
 get_next_node([], _) ->
     undefined;
@@ -614,25 +604,7 @@ get_next_node(SortedNodes, MyID) ->
             FirstHigherNode
     end.
 
-find_adjacent_GS([], _) ->
-    io:format("ERROR find_adjacent_GS: No areas found~n", []);
-find_adjacent_GS([{GS, Areas} | T], My_R_Border) ->
-    case find_adjacent_area(Areas, My_R_Border) of
-        true ->
-            {GS, Areas};
-        false ->
-            find_adjacent_GS(T, My_R_Border)
-    end.
 
-% returns true if atleast one Area is adjacent to my right border
-find_adjacent_area([], _) ->
-    false;
-find_adjacent_area([#area{left_border=His_L_Border} = _ | T], My_R_Border) ->
-    if His_L_Border =:= My_R_Border ->
-        true;
-    true -> % else continue searching
-        find_adjacent_area(T, My_R_Border)
-    end.
 
 get_rightmost_border_modulu(Areas)->
     get_rightmost_border_modulu(Areas, -?INFINITY).  % [ 1, 2 ,4 ] 
@@ -713,15 +685,28 @@ get_gui_node() ->
         [] -> undefined; % If no nodes match
         _ -> {error, multiple_matches} % If there are multiple matches, which shouldn't happen
     end.
+get_some_node() ->
+    Pattern = io_lib:format("gui@", []),
+    MatchingNodes = lists:filter(fun(Node) -> 
+        case re:run(atom_to_list(Node), Pattern) of
+            {match, _} -> false; 
+            nomatch -> true
+        end
+    end, nodes()),
+    case MatchingNodes of
+        [Node|_] -> Node; % If there's exactly one matching node
+        [] -> undefined % If no nodes match
+             % If there are multiple matches, which shouldn't happen
+    end.
 
 get_current_time_from_node(Node) ->
     try
         gen_server:call({time_server,Node}, get_time) % we must get time fron the same node that the timestamp is created in
     catch
         exit:{noproc, _} ->
-            io:format("ERROR: time_server is down~n"),
+            % io:format("ERROR: time_server is down~n"),
             {noproc, 0}; % if the time_server is down, we assume the gs_server is also down
-        Error:Reason ->
-            io:format("ERROR: ~p, Reason:~p~n", [Error, Reason]),
-            {Error, Reason}
+        _:_ -> % other no proc/ nodedown errors
+            % io:format("ERROR: ~p, Reason:~p~n", [Error, Reason]),
+            {noproc, 0}
     end.

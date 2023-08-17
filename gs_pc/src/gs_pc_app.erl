@@ -54,7 +54,8 @@ worker() ->
             exit(normal);
         {'EXIT', _From, Reason} ->
             % Handle other process termination reasons
-            io:format("Worker process terminated with reason: ~p~n", [Reason])
+            io:format("Worker process terminated with reason: ~p~n", [Reason]),
+            gs_server:start_link(1)
     end.
     
 

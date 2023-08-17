@@ -30,14 +30,6 @@ init([Port_erl2py,Port_py2erl]) ->
 
 
 
-% send_message_to_gs(Message) ->
-%     % Iterate over all GS nodes and send them the message.
-%     Nodes = ['gs1@localhost', 'gs2@localhost', 'gs3@localhost', 'gs4@localhost'], 
-%     Answers = [lists:flatten(gen_server:call({gs_server, Node}, Message)) || Node <- Nodes],
-%     io:format("Answers: ~p~n", [Answers]),
-%     ok.
-
-
 %% gen_server callbacks
 
 handle_call({establish_comm, Node, GS_location}, _From, #state{gs_nodes = Nodes} = State) ->
@@ -134,7 +126,7 @@ handle_gui_msg({add_waypoint, Msg} , #state{waypoints = Waypoints} = State) ->
             State % return state unchanged
     end;
 
-handle_gui_msg({add_target, Msg} , #state{gs_nodes = [GS | _]} = State) ->
+handle_gui_msg({add_target, Msg} , #state{gs_nodes = [_GS | _]} = State) ->
     Pattern = "\\((\\d+\\.?\\d*)\\s*,\\s*(\\d+\\.?\\d*)\\)",
     case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
         {match, [Target_X, Target_Y]} ->
@@ -148,7 +140,7 @@ handle_gui_msg({add_target, Msg} , #state{gs_nodes = [GS | _]} = State) ->
     end;
 
 
-handle_gui_msg({set_waypoints, GS} , #state{waypoints = Waypoints} = State) ->
+handle_gui_msg({set_waypoints, _GS} , #state{waypoints = Waypoints} = State) ->
     GS_Node = hd(nodes()),
     gen_server:call({gs_server, GS_Node}, {set_waypoints, Waypoints}),
     State#state{waypoints = []}; % empty waypoints stack
@@ -196,8 +188,6 @@ radian_to_degree(Radian) ->
     DegreesFloat = Radian * (180/math:pi()),
     round(DegreesFloat).
 
-degree_to_radian(Degree) ->
-    Degree * (math:pi()/180).
 
 
 open_socket_for_listener(In_Port) ->

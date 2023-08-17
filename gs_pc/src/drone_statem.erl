@@ -29,6 +29,7 @@ start_link(Drone) when is_record(Drone,drone)  ->
 start(Drone) when is_record(Drone,drone)  ->
     gen_statem:start(?MODULE, [Drone], []).
 
+
 rebirth(State)->
     % gen_statem:start(?MODULE, [rebirth, State, Borders], []).
     % io:format("rebirth Drone state:~p~n",[State]),
@@ -100,7 +101,7 @@ slave(state_timeout, _From, Internal_state) ->
         ok -> 
             {keep_state, New_Internal_state, [{state_timeout, ?TIMEOUT, time_tick}]};
         {change_area, New_Area}->
-            io:format("got new area ~p~n",[New_Area]),
+            % io:format("got new area ~p~n",[New_Area]),
             {keep_state, New_Internal_state#drone{borders = New_Area}, [{state_timeout, ?TIMEOUT, time_tick}]};
         terminate ->
             {stop, normal, New_Internal_state}
@@ -145,7 +146,7 @@ slave(_Event, _From, _Data ) -> % test
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% leader state
 
-leader(state_timeout,_From , #drone{followers = Followers, location = Location, theta = Theta, waypoints_stack=Waypoints_stack, next_waypoint=Next_WP} =Internal_state) ->
+leader(state_timeout,_From , #drone{followers = Followers, location = Location, waypoints_stack=Waypoints_stack, next_waypoint=Next_WP} =Internal_state) ->
     % io:format("~p location is ~p~n", [Internal_state#drone.id,Location]),
     Distance_to_waypoint = get_distance(Next_WP,Location),
     if
@@ -231,12 +232,10 @@ rotation_matrix({X,Y},Theta)->
     {X_new,Y_new} = {X*math:cos(Theta)-Y*math:sin(Theta), X*math:sin(Theta)+Y*math:cos(Theta)},
     {X_new,Y_new}.
 
-waypoint_update({X,Y},Leader_Theta, #drone{location = Location, indentation = Indentation} = Internal_state) ->
+waypoint_update({X,Y},Leader_Theta, #drone{indentation = Indentation} = Internal_state) ->
     {X_new,Y_new} = rotation_matrix(Indentation, Leader_Theta),
     Theta_to_wp = get_theta_to_wp(Internal_state),
     New_Waypoint ={{X-X_new,Y-Y_new},Leader_Theta},
-    % Interception_WP = calculate_interception_point(New_Waypoint, Location), % returns new waypoint
-    % {Interception_WP, Theta_to_wp}. %update waypoint
     {New_Waypoint, Theta_to_wp}. %update waypoint
 
 indentation_update(ID) ->
@@ -244,13 +243,6 @@ indentation_update(ID) ->
     {INDENTATION_X,INDENTATION_Y*math:pow(-1,ID)}.
 
 
-calculate_interception_point({{WP_X,WP_Y}, WP_Theta}=Waypoint, Position) ->
-    Distance = get_distance(Waypoint,Position),
-    ToT = 3/Distance,
-    X_future = WP_X + ToT*math:cos(WP_Theta),
-    Y_future = WP_Y + ToT*math:sin(WP_Theta),
-    % Theta_to_future_WP = math:atan2(Y_future - Y , X_future - X),
-    {{X_future,Y_future},WP_Theta}.
 
 
 %%%-------------------------------------------------------------------
@@ -286,7 +278,7 @@ increment_waypoint(#drone{next_waypoint={{_,_}, Theta} , location= {X,Y}})->
     New_Y = Y+?STEP_SIZE*math:sin(Theta),
     {{New_X,New_Y},Theta}. %return new waypoint
 
-max_theta(New_Theta, Old_Theta) ->
+max_theta(New_Theta, _Old_Theta) ->
     New_Theta.
     % Pi = math:pi(),
     % if 
@@ -297,8 +289,8 @@ max_theta(New_Theta, Old_Theta) ->
     %     true ->
     %         Normalized = New_Theta
     % end,
-    % Max_Counter_clockwise = Old_Theta + ?MAX_THETA,
-    % Max_clockwise = Old_Theta - ?MAX_THETA,
+    % Max_Counter_clockwise = _Old_Theta + ?MAX_THETA,
+    % Max_clockwise = _Old_Theta - ?MAX_THETA,
     % if 
     %     Normalized > Max_Counter_clockwise ->
     %         Max_Counter_clockwise;
@@ -340,7 +332,9 @@ step(slave, #drone{speed= Old_speed, theta = Old_theta, location={X,Y}, next_way
 
 
 
-
+% handle_info({'EXIT', FromPid, Reason}, State) when is_record(State,drone) ->
+%     cross_border(State),
+%             {keep_state, State}.
 
 update_neighbors(Location, Theta, #drone{followers= Followers} = Internal_state)->
     update_neighbors(Followers, Location, Theta, Internal_state).
@@ -354,7 +348,7 @@ update_neighbors([{Neighbor_ID,PID}|T], Location, Theta, #drone{id=ID} = Interna
         logger(ID,"2"),
         update_neighbors(T, Location, Theta,Internal_state)
     catch
-        Error:Kind -> % noproc and nodedown errors
+        _:_ -> % noproc and nodedown errors
             % io:format("Requesting new PID~n"),
             try
                 {ok,New_PID} = gen_server:call(gs_server, {dead_neighbour, Neighbor_ID}),
@@ -371,7 +365,7 @@ replace_dead_neighbour(ID, New_PID,  #drone{followers= Neighbors}) ->
     lists:keyreplace(ID, 1, Neighbors, {ID, New_PID}).
 
 
-update_gs(#drone{id=ID} = Internal_state) ->
+update_gs(Internal_state) ->
     gen_server:cast(gs_server, {drone_update, Internal_state#drone{pid=self(),gs_server=node(),time_stamp=get_time()}}).
 
 check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) ->
