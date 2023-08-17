@@ -394,6 +394,7 @@ cross_border(#drone{id=ID, location=Location}=Internal_state) ->
 
 
 look_for_target(#drone{targets = Targets} = Internal_state) ->
+    io:format("looking for targets, and my targets are ~p~n",[Targets]),
     look_for_target(Targets, Internal_state).
 
 look_for_target([], #drone{targets = Targets} )->
