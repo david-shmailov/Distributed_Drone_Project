@@ -25,7 +25,7 @@ init([]) ->
     {ok, []}.
 
 
-
+% returns the current time stamp of this node
 handle_call(get_time, _From, State) ->
     Current_time_stamp = erlang:monotonic_time(millisecond),
     {reply, {ok,Current_time_stamp}, State};

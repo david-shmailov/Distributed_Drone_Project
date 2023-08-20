@@ -13,7 +13,6 @@
                     handle_info/2,
                     terminate/2,
                     code_change/3]).
-% -import(project_test,[report/0]).
 -export([start/2, stop/1]).
 
 
@@ -27,6 +26,7 @@ start(_StartType, _StartArgs) ->
 stop(_State) ->
     ok.  
 
+% starts the python gui, passing parameters defined in project_def.hrl for consistency
 start_python_gui() ->
     io:format("Starting python GUI~n"),
     Command = io_lib:format("python3 Qt_GUI/gui.py --in_port ~p --out_port ~p --world_size ~p --timeout ~p --search_radius ~p --step_size ~p &", 

@@ -29,7 +29,7 @@ start(_StartType, _StartArgs) ->
     end,
     {ok, SupPid}.
     
-
+% pings the gui node to join the cluster
 ping_gui_node() ->
     case init:get_argument(gui_node) of
         {ok, [[GUI_NODE_STR]]} -> 
@@ -46,6 +46,7 @@ ping_gui_node() ->
         error -> io:format("Argument not provided~n")
     end.
 
+% OTP application reserved function for monitoring processes
 worker() ->
     receive
         shutdown ->

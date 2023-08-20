@@ -29,7 +29,7 @@ start_link() ->
 
 
 
-
+% init a new GS server
 init([]) ->
     {ok, GS_ID} = extract_number(node()),
     ets:new(gs_ets, [named_table,set, private, {write_concurrency, true}]), % think if we need write_concurrency
@@ -40,11 +40,12 @@ init([]) ->
     Node_to_monitor = start_monitor(),
     {ok, #state{gs_id = GS_ID, all_areas=All_Areas, gs_location = GS_location, node_to_monitor = Node_to_monitor}};
 
+% init a GS server that is restoring from a crash
 init([Atom])->
     case Atom of
         ask_for_restoration ->
             {ok, GS_ID} = extract_number(node()),
-            Node=get_some_node(),%todo create a more stable way to get some node that isnt gui
+            Node=get_any_gs_node(),
             io:format("trying to get data from~p~n",[Node]),
             case Node of
                 [] ->
@@ -70,7 +71,7 @@ init([Atom])->
 
 
 
-
+% attempts to start monitoring the assigned node.
 start_monitor()->
     Node_to_monitor = get_node_to_monitor(),
     case net_adm:ping(Node_to_monitor) of
@@ -85,7 +86,7 @@ start_monitor()->
             start_monitor()
     end.
 
-
+% sets the world areas for all GS's
 init_global_areas() ->
     [
         {1, [#area{left_border = -?INFINITY, right_border = ?WORLD_SIZE/4}]},
@@ -100,7 +101,7 @@ handle_call({establish_comm, _}, _From, State) ->
     io:format("Establishing communication with GUI~n"),
     {reply, Reply , State};
 
-
+% gets a launch drone command from GUI and launches them
 handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =State) -> % todo debug- replace borders with proper area
     io:format("Launching ~p drones~n", [Num]),
     Borders = get_home_area(State),
@@ -113,7 +114,7 @@ handle_call({launch_drones, Num}, _From, #state{gs_location = GS_location} =Stat
     set_followers(Num),
     {reply, ok, State#state{num_of_drones = Num}};
 
-
+% gets a Waypoint lists from GUI and sends to the leader
 handle_call({set_waypoints, Waypoints}, _From, State) ->
     % io:format("Setting waypoints: ~p~n", [Waypoints]),
     send_to_drone(0, {waypoints_stack, Waypoints}),
@@ -122,7 +123,7 @@ handle_call({set_waypoints, Waypoints}, _From, State) ->
 
 
 
-
+% recreates a drone in this node that has crossed a border
 handle_call({create_drone, ID, Drone_state, Next_area, Time_stamp, Node}, _From, State) -> % todo update to work with areas
     {Res, Current_time_stamp} = get_current_time_from_node(Node),
     if
@@ -139,7 +140,7 @@ handle_call({create_drone, ID, Drone_state, Next_area, Time_stamp, Node}, _From,
             {reply, {ok, PID}, State}
     end;
 
-
+% handle drone's crossing_border announcement 
 handle_call({crossing_border,ID, Location, #drone{time_stamp = Time_stamp} = Drone_state}, _From, State) ->
     Current_time_stamp = get_time(), % time here is within the same node, which is synchronized
     case Current_time_stamp - Time_stamp > ?RETRY_DELAY of
@@ -178,15 +179,16 @@ handle_call({crossing_border,ID, Location, #drone{time_stamp = Time_stamp} = Dro
 
 
 
-
-handle_call({dead_neighbour,ID}, _From, State) ->%%function that get called by the drone when he detects that his neighbour is dead
+% function that get called by the drone when he detects that his neighbour is dead
+handle_call({dead_neighbour,ID}, _From, State) ->
     New_Pid=get_pid(ID),
     logger(to_drone,"2"),
     % [New_Pid]=ets:lookup(gs_ets, ID),
     % io:format("Drone ID: ~p, new PID~p~n", [ID,New_Pid]),
     {reply, {ok,New_Pid}, State};
 
-handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the previous gs when he transfered a drone to this gs
+%function that get called by the previous gs when he transfered a drone to this gs
+handle_call({ask_for_pid,ID}, _From, State) ->%
     %the gs that killed his drone will ask for the pid of the drone that was killed
     case  get_pid(ID) of %ets:lookup(gs_ets, ID)
         PID when is_pid(PID)->
@@ -194,6 +196,7 @@ handle_call({ask_for_pid,ID}, _From, State) ->%%function that get called by the 
         [] ->
             {reply, {error, not_found}, State}
     end;
+
 handle_call(ask_for_restoration, _From, State) ->
     ETS = ets:tab2list(gs_ets),
     io:format("Asked for restoration~n"),
@@ -263,6 +266,7 @@ handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
 
+% handle nodedown event, the node we are monitoring has gone down
 handle_info({nodedown, _}, #state{num_of_drones=NOF, node_to_monitor= Node}=State) ->
     io:format("Node ~p went down!~n", [Node]),
     %% Handle the node down event as needed
@@ -277,7 +281,7 @@ handle_info({nodedown, _}, #state{num_of_drones=NOF, node_to_monitor= Node}=Stat
     end,
     Lost_Drones = retrieve_all_drones(Node, New_State), 
     if 
-        Lost_Drones ==[] ->
+        Lost_Drones == [] ->
             io:format("No drones lost~n");
         true->
             % io:format("Lost drones: ~p~n", [Lost_Drones]),
@@ -315,7 +319,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 %% Internal functions
 
-
+% ping GUI node to join the cluster
 wait_for_gui(GS_location) ->
     try
         gen_server:call(get_gui_node(), {establish_comm, node(), GS_location}),
@@ -333,7 +337,7 @@ wait_for_gui(GS_location) ->
     end.
 
 
-
+% extract GS ID number from node name
 extract_number(NodeName) ->
     case re:run(atom_to_list(NodeName), "gs([0-9]+)@.*", [{capture, all_but_first, list}]) of
         {match, [Number]} -> 
@@ -345,7 +349,7 @@ extract_number(NodeName) ->
 
 
 
-
+% calculate drone follower IDs for the leader
 calculate_neighbor(0,Num_of_drones) ->
     % ID = 0 is leader
     % Leader has 2 neighbors 
@@ -358,6 +362,7 @@ calculate_neighbor(0,Num_of_drones) ->
             [1,2]
     end;
 
+% calculate drone follower IDs for slaves
 calculate_neighbor(ID,Num_of_drones) ->
     % non leader drones follow the drone with ID +2 
     if
@@ -379,6 +384,7 @@ check_borders({X,_}, #state{gs_id=MyGS ,all_areas = All_Areas}) -> % todo debug 
             {Next_GS_Node,Next_area} % todo debug update drone borders if it crossed to a different area that is also in this node
     end.
 
+% gets a location and returns a tuple of the GS and area the location is within
 assign_area(_,[])->
     io:format("Error: no area found~n");
 
@@ -393,7 +399,7 @@ assign_area(X, [{GS,[H|T]}  |Other_GS])->
             assign_area(X,[{GS,T}|Other_GS])
     end.
 
-
+% set all drones their follower lists
 set_followers(Num) ->
     % io:format("Setting followers~n"),
     Drone_neighbors = [calculate_neighbor(ID, Num) || ID <- lists:seq(0,Num-1)],
@@ -403,7 +409,7 @@ set_followers(Num) ->
 send_target_to_drone(ID, Target) ->
     send_to_drone(ID, {add_target, Target}).
 
-
+% send any message to drone by ID
 send_to_drone(ID, Message) ->
     % io:format("updating drone ~p with {~p, ~p}~n", [ID, Key, Value]),
     % io:format("sending message ~p to drone ~p~n", [Message, ID]),
@@ -448,13 +454,6 @@ send_to_gui(Drone, #state{data_stack = Stack} = State ) ->
             State#state{data_stack = [Drone|Stack]}
     end.
 
-
-% get_value(Key, [{Key, Value} | _]) ->
-%     Value;
-% get_value(Key, [_ | Rest]) ->
-%     get_value(Key, Rest);
-% get_value(_, []) ->
-%     not_found.
 
 % actively updates the drone of their follower's new PID
 reupdate_neighbour(Reborn_ID,New_PID) ->
@@ -552,7 +551,7 @@ drone_restore_state(ID)-> %returns the approximation of drone state
     end.
 
 
-
+% expands current GS's areas in an event a GS node goes down
 expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}=State) ->
     % All_Areas is a list of tuples [{GS, [Area1, Area2,...]}, ...]
     {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
@@ -626,7 +625,7 @@ get_node_to_monitor(Node) ->
     Next_Node = (Number rem 4) + 1,
     number_to_gs(Next_Node).
 
-
+% get the original area the GS is physically located in
 get_home_area(#state{gs_id = MyGS, all_areas=All_Areas, gs_location= {X,_}}) ->
     {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
     [Home_area] = [Area || #area{left_border = Left_border, right_border= Right_border} = Area <- MyAreas, Left_border =< X, Right_border >= X],
@@ -648,7 +647,7 @@ number_to_gs(Index) ->
         _ -> {error, multiple_matches} % If there are multiple matches, which shouldn't happen
     end.
 
-
+% get the gui node name from nodes() function
 get_gui_node() ->
     Pattern = io_lib:format("gui@", []),
     MatchingNodes = lists:filter(fun(Node) -> 
@@ -662,7 +661,9 @@ get_gui_node() ->
         [] -> undefined; % If no nodes match
         _ -> {error, multiple_matches} % If there are multiple matches, which shouldn't happen
     end.
-get_some_node() ->
+
+% get the first GS node from nodes() function
+get_any_gs_node() ->
     Pattern = io_lib:format("gui@", []),
     MatchingNodes = lists:filter(fun(Node) -> 
         case re:run(atom_to_list(Node), Pattern) of
@@ -676,6 +677,7 @@ get_some_node() ->
              % If there are multiple matches, which shouldn't happen
     end.
 
+% get the local time stamp from Node
 get_current_time_from_node(Node) ->
     try
         gen_server:call({time_server,Node}, get_time) % we must get time fron the same node that the timestamp is created in

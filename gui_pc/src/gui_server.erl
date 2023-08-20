@@ -22,9 +22,10 @@ start_link(Port_erl2py,Port_py2erl) ->
 
 
 init([Port_erl2py,Port_py2erl]) ->
+    % open a socket for listening to python
     {ok, Socket} = open_socket_for_listener(Port_py2erl),
+    % open a file for logging statistics
     {ok, File}=file:open(?LOG_NAME, [write]),
-    % todo use nodes() to search if existing GS already up and running prior to this one
     {ok, #state{out_port = Port_erl2py, in_port = Port_py2erl, input_socket = Socket, log_fd = File}}.
 
 
@@ -32,6 +33,7 @@ init([Port_erl2py,Port_py2erl]) ->
 
 %% gen_server callbacks
 
+% establish communication with a new ground station
 handle_call({establish_comm, Node, GS_location}, _From, #state{gs_nodes = Nodes} = State) ->
     io:format("Establishing comm with ~p~n", [Node]),
     Command = io_lib:format("establish_comm , ~p,~p", [Node, GS_location]),
@@ -42,16 +44,18 @@ handle_call(_Request, _From, State) ->
     io:format("Unknown message: ~p from ~p ~n", [_Request, _From]),
     {reply, ignored, State}.
 
+% target found by a drone
 handle_cast({target_found,{X,Y}}, State) ->
     Command = io_lib:format("target_found,~p,~p", [X,Y]),
     send_to_gui(Command ,State),
     {noreply, State};
 
-
+% drone movement vector and location update
 handle_cast({drone_update, Stack}, State) ->
     send_stack_to_gui(Stack, State),
     {noreply, State};
 
+% log statistics message
 handle_cast(Message, #state{log_fd=File}=State)  when is_record(Message, log_message)->
     io:format(File, "~p~n", [Message]),
     {noreply, State};
@@ -61,7 +65,7 @@ handle_cast(_Msg, State) ->
     io:format("Unknown message: ~p~n", [_Msg]),
     {noreply, State}.
 
-
+% Receive data from python GUI
 handle_info({udp, Socket, _Host, _Port, Data}, #state{input_socket = Socket} = State) ->
     io:format("Received: ~p~n", [Data]),
     % assumes Data is only one dictionary pair of python! the key should be converted to atom
@@ -74,6 +78,7 @@ handle_info(_Info, State) ->
     io:format("Unknown info: ~p~n", [_Info]),
     {noreply, State}.
 
+% close the socket and file
 terminate(_Reason, #state{input_socket = Socket, log_fd = File}) ->
     if Socket =/= undefined ->
         gen_udp:close(Socket)
@@ -91,17 +96,16 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 
 
-
+% send a stack of drone updates to the GUI
 send_stack_to_gui([Drone| Rest], State) ->
-    % io:format("Drone: ~p~n", [Drone]),
     Binary = drone_to_binary(Drone),
     send_to_gui(Binary, State),
-    % todo stress check to see if we need to add a delay
     send_stack_to_gui(Rest, State);
 
 send_stack_to_gui([], _State) ->
     ok.
 
+% parse a string of the form "{key: value}" from the python GUI
 parse_pair(String) ->
     % Remove leading and trailing curly braces
     Stripped = string:strip(string:strip(String, both, $}), both, ${),
@@ -115,6 +119,7 @@ parse_pair(String) ->
 
     {Key, Value}.
 
+% handle a message from the GUI
 handle_gui_msg({add_waypoint, Msg} , #state{waypoints = Waypoints} = State) ->
     Pattern = "\\((\\d+\\.?\\d*)\\s*,\\s*(\\d+\\.?\\d*)\\)",
     case re:run(Msg, Pattern, [{capture, all_but_first, list}]) of
@@ -158,7 +163,7 @@ handle_gui_msg(Unknown, State) ->
     State.
 
 
-    
+% convert a drone record to a binary string for sending to the GUI
 drone_to_binary(#drone{id = ID, location= Location, theta = Theta, speed = Speed, next_waypoint = Waypoint}) ->
     Waypoint_flat = flatten_waypoint(Waypoint),
     List = [ID] ++ tuple_to_list_float(Location) ++ [radian_to_degree(Theta), Speed] ++ Waypoint_flat,
@@ -176,7 +181,7 @@ number_to_string(Num) when is_integer(Num) ->
 number_to_string(Num) when is_float(Num) ->
     float_to_list(Num).
 
-
+% send a binary string to the GUI
 send_to_gui(Data, #state{out_port = Port}) ->
     % Create a socket (this doesn't bind to the out_port, it's just for sending)
     {ok, Socket} = gen_udp:open(0),
@@ -190,8 +195,8 @@ radian_to_degree(Radian) ->
 
 
 
+% Open a port to the python listener
 open_socket_for_listener(In_Port) ->
-    % Open a port to the python listener
     {ok, _Socket} = gen_udp:open(In_Port, [binary, {active,true}]).
 
 

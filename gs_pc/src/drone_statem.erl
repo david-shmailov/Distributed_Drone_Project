@@ -31,8 +31,6 @@ start(Drone) when is_record(Drone,drone)  ->
 
 
 rebirth(State)->
-    % gen_statem:start(?MODULE, [rebirth, State, Borders], []).
-    % io:format("rebirth Drone state:~p~n",[State]),
     gen_statem:start_link(?MODULE, [rebirth, State], []).
 
 stop() ->
@@ -46,7 +44,7 @@ stop() ->
 %%% @end
 %%% '
 
-
+% special init function to restore an existing drone from its previous internal state
 init([rebirth | [#drone{id = ID} = Internal_state]]) when is_record(Internal_state, drone) -> % needed for pattern match on rebirth
     % io:format("Drone ~p is reborn in node ~p, PID: ~p~n", [ID, node(), self()]),
     case ID of
@@ -57,7 +55,7 @@ init([rebirth | [#drone{id = ID} = Internal_state]]) when is_record(Internal_sta
     end,
     {ok, State, Internal_state#drone{pid = self(),state=State},[{state_timeout, ?TIMEOUT, time_tick}]};
 
-
+% init a new drone
 init([#drone{id = ID, location = Location, theta = Theta }=Internal_state]) ->
     io:format("Drone ~p born~n", [ID]),
     case ID of
@@ -91,7 +89,7 @@ code_change(_OldVsn, State, Data, _Extra) ->
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% slave state
 
-
+% slave state time tick:
 slave(state_timeout, _From, Internal_state) ->
     % io:format("Drone ~p :slave state_timeout~n",[get(id)]),
     Temp_State = step(slave, Internal_state),
@@ -108,7 +106,7 @@ slave(state_timeout, _From, Internal_state) ->
     end;
 
 
-
+% slave state receive update from slave's leader
 slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}}, #drone{followers = Followers} = Internal_state) -> % test
     gen_statem:reply(_From, ok),    
     % io:format("Drone ~p :call vector_update in slave~n",[get(id)]),
@@ -123,22 +121,25 @@ slave({call,_From},{vector_update, {Leader_Location,Leader_Theta}}, #drone{follo
 
 
 
-
+% slave state receive update from GS on targets
 slave(cast,{add_target, Target},#drone{targets = Targets} = Internal_state) ->
     {keep_state, Internal_state#drone{targets = [Target | Targets]}};
 
+% slave state receive update from GS on new PID for follower
 slave(cast,{replace_neighbour,{Reborn_ID,New_PID}},Internal_state) ->
     New_Neighbors = replace_dead_neighbour(Reborn_ID, New_PID, Internal_state),
     {keep_state,Internal_state#drone{followers = New_Neighbors}};
 
+% slave state receive update on target found
 slave(cast,{target_found,Target}, #drone{targets=Targets} = Internal_state)->
     New_targets = lists:delete(Target,Targets),
     {keep_state, Internal_state#drone{targets = New_targets}};
 
+% slave state update followers list from GS
 slave(cast,{update_followers, Followers}, Internal_state) ->
     {keep_state, Internal_state#drone{followers = Followers}};
 
-slave(_Event, _From, _Data ) -> % test
+slave(_Event, _From, _Data ) -> 
     io:format("ERROR unknown event ~p in slave~n", [_Event]),
     io:format("the data is ~p~n, from:~p~n", [_Data, _From]),
     {keep_state, _Data,[{state_timeout, ?TIMEOUT, time_tick}]}.
@@ -146,6 +147,7 @@ slave(_Event, _From, _Data ) -> % test
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 %%% leader state
 
+% leader state time tick:
 leader(state_timeout,_From , #drone{followers = Followers, location = Location, waypoints_stack=Waypoints_stack, next_waypoint=Next_WP} =Internal_state) ->
     % io:format("~p location is ~p~n", [Internal_state#drone.id,Location]),
     Distance_to_waypoint = get_distance(Next_WP,Location),
@@ -181,23 +183,25 @@ leader(state_timeout,_From , #drone{followers = Followers, location = Location, 
             {stop, normal, New_Internal_state#drone{targets = New_Targets, followers = New_followers}}
     end;
     
-
+% leader state receive report on target found
 leader(cast,{target_found,Target},#drone{targets = Targets}= Internal_state)->
     New_targets = lists:delete(Target,Targets),
     {keep_state, Internal_state#drone{targets = New_targets}};
 
-
+% leader state receive new target from GS
 leader(cast,{add_target, Target},#drone{targets = Targets} = Internal_state) ->
     {keep_state, Internal_state#drone{targets = [Target | Targets]}};
 
-
+% leader state receive update from GS on new PIDs for followers
 leader(cast,{replace_neighbour,{Reborn_ID,New_PID}},Internal_state) ->
     New_Neighbors = replace_dead_neighbour(Reborn_ID, New_PID, Internal_state),
     {keep_state,Internal_state#drone{followers = New_Neighbors}};
 
+% leader state receive update from GS on followers list
 leader(cast,{update_followers, Followers}, Internal_state) ->
     {keep_state, Internal_state#drone{followers = Followers}};
 
+% leader state receive update from GS on new waypoints
 leader(cast, {waypoints_stack, Waypoints_stack}, Internal_state) ->
     {keep_state, Internal_state#drone{waypoints_stack = Waypoints_stack}};
 
@@ -209,11 +213,15 @@ leader(_Event, Message, _Data) ->
 %%%===================================================================
 %%% Internal functions
 
+% theta - angle in radians from positive X axis (same as in math)
+
+% get theta angle to waypoint
 get_theta_to_wp(#drone{location = {Pos_X,Pos_Y}, next_waypoint={{WP_X,WP_Y},_}}) ->
     X = WP_X - Pos_X,
     Y = WP_Y - Pos_Y,
     math:atan2(Y , X).
 
+% get next waypoint from leader's waypoint stack
 next_waypoint(#drone{waypoints_stack = WP_Stack}=Internal_state) ->%%that function is only for leader state
     case WP_Stack of
         [] -> io:format("FORBIDDEN CASE - waypoints_stack is empty~n");
@@ -223,21 +231,25 @@ next_waypoint(#drone{waypoints_stack = WP_Stack}=Internal_state) ->%%that functi
             Internal_state#drone{waypoints_stack = T ++ [WP], next_waypoint= WP, theta = get_theta_to_wp(Internal_state#drone{next_waypoint = WP})}
     end.
 
+% calculate distance between two locations or location/waypoint
 get_distance({{X1,Y1},_},{X2,Y2}) ->
     get_distance({X1,Y1},{X2,Y2});
 get_distance({X1,Y1},{X2,Y2}) ->
     math:sqrt((X1-X2)*(X1-X2)+(Y1-Y2)*(Y1-Y2)).
 
+% compute axis rotation matrix to calculate proper location in flock formation
 rotation_matrix({X,Y},Theta)->
     {X_new,Y_new} = {X*math:cos(Theta)-Y*math:sin(Theta), X*math:sin(Theta)+Y*math:cos(Theta)},
     {X_new,Y_new}.
 
+% slave's personal waypoint update
 waypoint_update({X,Y},Leader_Theta, #drone{indentation = Indentation} = Internal_state) ->
     {X_new,Y_new} = rotation_matrix(Indentation, Leader_Theta),
     Theta_to_wp = get_theta_to_wp(Internal_state),
     New_Waypoint ={{X-X_new,Y-Y_new},Leader_Theta},
     {New_Waypoint, Theta_to_wp}. %update waypoint
 
+% defines the relative position of a slave to its leader
 indentation_update(ID) ->
     {INDENTATION_X, INDENTATION_Y} = ?INDENTATION,
     {INDENTATION_X,INDENTATION_Y*math:pow(-1,ID)}.
@@ -256,7 +268,7 @@ indentation_update(ID) ->
 %%% calculate speed = if distance is small, updates waypoint with previous theta and speed 1
 %%% Neriya's addition - if distance is 0, speed is 0 in order to avoid bugs
 
-
+% calculates speed as a function of distance from current waypoint.
 calculate_speed(#drone{next_waypoint= Waypoint, location = Location, speed = Current_speed}) ->
     Distance_to_waypoint = get_distance(Waypoint,Location),
     if
@@ -272,12 +284,13 @@ calculate_speed(#drone{next_waypoint= Waypoint, location = Location, speed = Cur
 
 
 
-
+% increments waypoint by one step to keep the slave drone moving in a streight steady line
 increment_waypoint(#drone{next_waypoint={{_,_}, Theta} , location= {X,Y}})->
     New_X = X+?STEP_SIZE*math:cos(Theta),
     New_Y = Y+?STEP_SIZE*math:sin(Theta),
     {{New_X,New_Y},Theta}. %return new waypoint
 
+% caps the max anglular change of movement, not in use anymore
 max_theta(New_Theta, _Old_Theta) ->
     New_Theta.
     % Pi = math:pi(),
@@ -300,14 +313,14 @@ max_theta(New_Theta, _Old_Theta) ->
     %         Normalized
     % end.
 
-
+% step function for leader
 step(leader, #drone{location = {X,Y}, theta=Theta} = Internal_state)->
     New_Theta = get_theta_to_wp(Internal_state),
     Cappted_Theta = max_theta(New_Theta, Theta),
     New_Location = {X+?STEP_SIZE*math:cos(Cappted_Theta),Y+?STEP_SIZE*math:sin(Cappted_Theta)}, %update location
     Internal_state#drone{location=New_Location, speed=1, theta = Cappted_Theta};
 
-
+% step function for drone
 step(slave, #drone{speed= Old_speed, theta = Old_theta, location={X,Y}, next_waypoint= Waypoint} = Internal_state)->
     % io:format("Drone ~p is stepping~n",[get(id)]),
     New_Speed = calculate_speed(Internal_state),
@@ -331,10 +344,6 @@ step(slave, #drone{speed= Old_speed, theta = Old_theta, location={X,Y}, next_way
 
 
 
-
-% handle_info({'EXIT', FromPid, Reason}, State) when is_record(State,drone) ->
-%     cross_border(State),
-%             {keep_state, State}.
 
 update_neighbors(Location, Theta, #drone{followers= Followers} = Internal_state)->
     update_neighbors(Followers, Location, Theta, Internal_state).
@@ -368,6 +377,7 @@ replace_dead_neighbour(ID, New_PID,  #drone{followers= Neighbors}) ->
 update_gs(Internal_state) ->
     gen_server:cast(gs_server, {drone_update, Internal_state#drone{pid=self(),gs_server=node(),time_stamp=get_time()}}).
 
+% checks if we crossed any borders
 check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) ->
     #area{left_border=Left,right_border=Right}=Border_record,
     case X=<Left orelse X>=Right of
@@ -378,7 +388,7 @@ check_borders(#drone{borders=Border_record, location = {X,_}} = Internal_state) 
     end.
 
 
-
+% informs the GS that we crossed a border, waits for answer
 cross_border(#drone{id=ID, location=Location}=Internal_state) ->
     try
         gen_server:call(gs_server, {crossing_border, ID, Location,Internal_state#drone{time_stamp=get_time()}}, ?RETRY_DELAY)
@@ -391,7 +401,7 @@ cross_border(#drone{id=ID, location=Location}=Internal_state) ->
 
 
 
-
+% checks internal target bank if there is a target in our detection radius
 look_for_target(#drone{targets = Targets} = Internal_state) ->
     % io:format("looking for targets, and my targets are ~p~n",[Targets]),
     look_for_target(Targets, Internal_state).
@@ -408,6 +418,7 @@ look_for_target([Target|Rest], #drone{location=Location} = Internal_state)->
             look_for_target(Rest,Internal_state)
     end.
 
+% statistics logging function for drones
 logger(ID,Message) ->
     {_,Time} = calendar:local_time(),
     % make a string of "drone" and Id
@@ -415,18 +426,19 @@ logger(ID,Message) ->
     Log = #log_message{time=Time, source = Name, message = Message},
     gen_server:cast(gs_server, Log).
 
-get_time()->%%in milliseconds-needs to be verified
+% gets local node time in miliseconds
+get_time()->
     erlang:monotonic_time(millisecond).
 
 
 
-
+% sends a message to the python gui
 found_target(Target, #drone{id = ID, targets= Targets}) ->
     io:format("Drone ~p , found target at ~p~n",[ID,Target]), % todo
     gen_server:cast(gs_server, {target_found, Target}),
     {found, lists:delete(Target, Targets)}.
 
-
+% a switch if we are in debug mode, will update each time. else will do nothing
 debug_update(Internal_state) ->
     case ?DEBUG_MODE of
         true ->
