@@ -2,6 +2,8 @@
 
 This distributed system project simulates a flock of drones in a coordinated environment. Each drone is represented by an individual Erlang process, and every ground station (GS) is an Erlang node. These nodes can be executed across different PCs within the same Local Area Network (LAN).
 
+[Demo video](https://youtu.be/ekqY0pUqW48)
+
 ## Prerequisites:
 - **Python:** Version 3.8 or later.
 - **PyQt5:** For the graphical user interface. You can find installation instructions [here](https://pythonbasics.org/install-pyqt/).
