@@ -7,7 +7,7 @@ This distributed system project simulates a flock of drones in a coordinated env
 ## Prerequisites:
 - **Python:** Version 3.8 or later.
 - **PyQt5:** For the graphical user interface. You can find installation instructions [here](https://pythonbasics.org/install-pyqt/).
-- **Erlang:** Erlang version- 13.0.4 , OTP 25.0
+- **Erlang:** Version 13.0.4 , OTP 25.0
 
 ## Setup Instructions:
 
