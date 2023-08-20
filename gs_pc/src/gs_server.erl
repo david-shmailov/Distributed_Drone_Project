@@ -536,7 +536,6 @@ set_pid(ID,New_PID)->
             ets:insert(gs_ets,{ID,Drone#drone{pid = New_PID}});
             
         [] ->
-            {error, not_found},
             io:format("ERROR set_pid:Drone ~p not found~n", [ID])
     end.
 
@@ -558,7 +557,6 @@ expand_areas(DeadGS, #state{gs_id = MyGS, all_areas=All_Areas}=State) ->
     % All_Areas is a list of tuples [{GS, [Area1, Area2,...]}, ...]
     {MyGS, MyAreas}  = lists:keyfind(MyGS, 1, All_Areas),
     {DeadGS, BackupAreas}  = lists:keyfind(DeadGS, 1, All_Areas),
-    Curr_R_Border = get_rightmost_border_modulu(MyAreas),
     
     % If the dead GS is not the GS we backup, return false.
     % remove old area
@@ -598,20 +596,6 @@ get_next_node(SortedNodes, MyID) ->
     end.
 
 
-
-get_rightmost_border_modulu(Areas)->
-    get_rightmost_border_modulu(Areas, -?INFINITY).  % [ 1, 2 ,4 ] 
-get_rightmost_border_modulu([], Max)->
-    Max;
-get_rightmost_border_modulu([#area{right_border=Border} | T], Max)-> % todo check if this is the right border
-    if 
-        Border == ?INFINITY ->
-            get_rightmost_border_modulu(T, Max);
-        Border > Max ->
-            get_rightmost_border_modulu(T, Border);
-        true ->
-            get_rightmost_border_modulu(T, Max)
-    end.
 
 get_drone(ID) ->
     get_key(ID).
